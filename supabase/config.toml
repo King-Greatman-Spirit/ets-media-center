@@ -1,0 +1,35 @@
+[project]
+name = "ets-media-center"
+database = "ets"
+schema = "public"
+
+[api]
+enabled = true
+max_rows = 1000
+
+[auth]
+enabled = true
+email_auth_enabled = true
+email_confirmations_enabled = false
+
+[storage]
+enabled = true
+file_size_limit = 5242880000
+
+[pgvector]
+enabled = true
+
+[realtime]
+enabled = true
+
+[edge_functions]
+enabled = true
+
+[db]
+port = 5432
+
+[ai]
+enabled = true
+
+[in_memory_storage_enabled]
+true

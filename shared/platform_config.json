@@ -1,0 +1,13 @@
+{
+  "platforms": [
+    { "id": "youtube", "name": "YouTube", "handle": "@KingdomArmyTV" },
+    { "id": "youtube_shorts", "name": "YouTube Shorts", "handle": "@KingdomArmyTV" },
+    { "id": "tiktok", "name": "TikTok", "handle": "@kingdomarmytv" },
+    { "id": "instagram", "name": "Instagram", "handle": "@KingdomArmyTV" },
+    { "id": "facebook", "name": "Facebook", "handle": "End Time Soldiers" },
+    { "id": "x_twitter", "name": "X/Twitter", "handle": "@KingdomArmyTV" },
+    { "id": "threads", "name": "Threads", "handle": "@KingdomArmyTV" },
+    { "id": "linkedin", "name": "LinkedIn", "handle": "End Time Soldiers" },
+    { "id": "telegram", "name": "Telegram", "handle": "@KingdomArmyTV" }
+  ]
+}

@@ -1,0 +1,56 @@
+node_modules/
+.next/
+dist/
+.env
+.env.local
+*.pyc
+__pycache__/
+*.egg-info/
+.venv/
+venv/
+storage/
+/tmp/
+*.log
+.DS_Store
+Thumbs.db
+.git/
+coverage/
+htmlcov/
+.idea/
+.vscode/
+*.swp
+*.swo
+*__pycache__*
+alembic/versions/
+!alembic/
+node/
+.parcel-cache/
+.turbo/
+*.tgz
+.nyc_output/
+build/
+out/
+storybook-static/
+
+# Supabase
+.supabase/
+
+# Docker
+Dockerfile
+docker-compose.yml
+docker-compose.override.yml
+
+# Backend
+backend/
+!backend/.gitkeep
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/dist/
+
+# ETS LOGOS
+ETS LOGOS/*
+!ETS LOGOS/.gitkeep
