@@ -63,13 +63,13 @@ git clone https://github.com/King-Greatman-Spirit/ets-media-center.git
 cd ets-media-center
 
 # Frontend
-cd frontend && npm install && npm run dev
+npm install && npm run dev
 
 # Backend
-cd backend && pip install -r requirements.txt && uvicorn main:app --reload
+cd backend && pip install -r requirements.txt && PYTHONPATH=app uvicorn app.main:app --reload
 
 # Workers
-cd backend && celery -A workers.media_engine worker --loglevel=info
+cd backend && PYTHONPATH=app celery -A workers.media_engine worker --loglevel=info
 
 # Or use Docker
 docker-compose up --build
