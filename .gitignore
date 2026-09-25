@@ -40,10 +40,6 @@ Dockerfile
 docker-compose.yml
 docker-compose.override.yml
 
-# Backend
-backend/
-!backend/.gitkeep
-
 # Frontend
 frontend/node_modules/
 frontend/.next/
@@ -54,3 +50,6 @@ frontend/dist/
 # ETS LOGOS
 ETS LOGOS/*
 !ETS LOGOS/.gitkeep
+
+# package-lock
+package-lock.json
