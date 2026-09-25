@@ -3,6 +3,7 @@ import { streamText, Output, NoObjectGeneratedError } from "ai";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { PLATFORMS, type PlatformId } from "@/lib/platforms";
+import { createAIGatewayProvider } from "@/lib/ai-gateway.server";
 
 const PLATFORM_IDS = PLATFORMS.map((p) => p.id) as [PlatformId, ...PlatformId[]];
 
@@ -33,11 +34,10 @@ export const repurposeContent = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => RepurposeInput.parse(input))
   .handler(async ({ data }) => {
-    const key = process.env["LOVABLE_API_KEY"];
+    const key = process.env["OPENAI_API_KEY"];
     if (!key) throw new Error("AI is not configured yet.");
 
-    const { createLovableAiGatewayProvider } = await import("@/lib/ai-gateway.server");
-    const gateway = createLovableAiGatewayProvider(key);
+    const gateway = createAIGatewayProvider(key);
 
     const targets = PLATFORMS.filter((p) => data.platforms.includes(p.id));
     const platformGuide = targets
