@@ -6,7 +6,7 @@ from db.session import get_db
 from models import User, UserRole
 from schemas import UserCreate, UserResponse, UserUpdate
 import bcrypt
-import jwt
+from jose import jwt
 from core.config import settings
 
 router = APIRouter()
