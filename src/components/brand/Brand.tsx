@@ -1,38 +1,46 @@
-// ============================================================
-// Brand Component
-// ============================================================
+import logoAsset from "@/assets/ets-logo.jpg.asset.json";
+import coverAsset from "@/assets/ets-cover.jpeg.asset.json";
+import { cn } from "@/lib/utils";
 
-import Image from 'next/legacy/image'
-import React from 'react'
+export const ETS_LOGO_URL = logoAsset.url;
+export const ETS_COVER_URL = coverAsset.url;
 
-export const ETS_COVER_URL = '/assets/ets-cover.jpeg'
-
-export function EtsWordmark({ compact }: { compact?: boolean }) {
+export function EtsLogo({ className, size = 40 }: { className?: string; size?: number }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="font-display text-xl font-bold text-gold-gradient">
-        {compact ? 'ETS' : 'End Time Soldiers'}
-      </span>
-    </div>
-  )
+    <img
+      src={ETS_LOGO_URL}
+      alt="End Time Soldiers shield"
+      width={size}
+      height={size}
+      className={cn("rounded-lg object-cover ring-1 ring-primary/40 shadow-[0_0_24px_-6px_var(--primary)]", className)}
+      loading="eager"
+    />
+  );
 }
 
-export function EtsCover({ className }: { className?: string }) {
+export function EtsWordmark({ compact = false, className }: { compact?: boolean; className?: string }) {
   return (
-    <div className={`absolute inset-0 bg-[url('/assets/ets-cover.jpeg')] bg-cover bg-center bg-opacity-30 ${className || ''}`} />
-  )
+    <div className={cn("flex items-center gap-3", className)}>
+      <EtsLogo size={compact ? 36 : 44} />
+      {!compact && (
+        <div className="leading-tight">
+          <div className="font-display text-lg font-bold tracking-[0.18em] text-gold-gradient">ETS</div>
+          <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Command Center</div>
+        </div>
+      )}
+    </div>
+  );
 }
 
-export function BrandLogo() {
+export function EtsCover({ className, overlay = true }: { className?: string; overlay?: boolean }) {
   return (
-    <div className="flex flex-col items-center gap-4">
-      <div className="h-20 w-20 rounded-full bg-gold-gradient flex items-center justify-center">
-        <span className="text-3xl font-black text-background">⚔️</span>
-      </div>
-      <div className="text-center">
-        <h1 className="font-display text-2xl font-bold text-gold-gradient">End Time Soldiers</h1>
-        <p className="text-xs text-muted-foreground tracking-[0.3em]">RAISING BOLD BELIEVERS ⚔️</p>
-      </div>
+    <div className={cn("relative overflow-hidden", className)}>
+      <img
+        src={ETS_COVER_URL}
+        alt="End Time Soldiers — Raising a Kingdom Army for Such a Time as This"
+        className="h-full w-full object-cover"
+      />
+      {overlay && <div className="absolute inset-0 bg-gradient-to-t from-background via-background/30 to-transparent" />}
     </div>
-  )
+  );
 }

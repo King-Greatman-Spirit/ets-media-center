@@ -1,40 +1,24 @@
-# End Time Soldiers Media Command Center
-## Complete AI-powered content engine for Christian Kingdom media ministry
+# Creator Command Hub
 
-## Overview
-The ETS Media Command Center is a full-stack application that automates the entire content pipeline for End Time Soldiers ministry. It transforms raw video/audio into platform-optimized content across 8+ platforms, schedules it, manages approval, publishes it, and tracks performance.
+Build a multi-platform media command center and scheduling dashboard. Include: 1) A bulk asset upload and media library supporting videos (short-form/reels), images, and audio, with bulk dropzone; 2) AI content repurposing studio that takes a piece of media or core idea and generates platform-tailored copy, hashtags, and formatting for YouTube Shorts, TikTok, Instagram Reels, Facebook, Threads, LinkedIn, X, Telegram, Substack; 3) Interactive visual content calendar and queue to schedule posts weeks or months in advance across channels; 4) Platform connection settings dashboard to manage API keys and credentials for YouTube, LinkedIn, Meta, Telegram, etc. Make the UI modern, sleek, and high-impact with dark mode styling suitable for a creator media studio.
 
-## Architecture
-- **Frontend**: Next.js 15 + React 19 + TypeScript + Tailwind CSS
-- **Backend**: FastAPI (Python) + PostgreSQL + Supabase
-- **AI**: OpenAI GPT-4o, Whisper for transcription
-- **Queue**: Celery + Redis
-- **Storage**: Supabase Storage + local file system
-- **Containerization**: Docker + Docker Compose
+This project was built with [Lovable](https://lovable.dev).
 
-## Quick Start
+## Build with Lovable
 
-### Prerequisites
-- Node.js 18+
-- Python 3.11+
-- Docker + Docker Compose
-- FFmpeg installed
-- Whisper installed (`pip install openai-whisper`)
+Continue developing this project in the [Lovable editor](https://lovable.dev/projects/a5cfb6e5-438a-43a8-b5a5-53a5dc0ee21e).
 
-### Setup
-1. Copy `.env.example` to `.env` and fill in credentials
-2. `docker-compose up --build`
-3. Or run individually:
-   - Backend: `cd backend && pip install -r requirements.txt && uvicorn main:app --reload`
-   - Frontend: `cd frontend && npm install && npm run dev`
+- **Ship faster**: describe what you want to build and Lovable handles the code.
+- **Stay in sync**: every change made in Lovable is committed straight to this repository.
+- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
 
-### Access
-- Dashboard: http://localhost:3000
-- API: http://localhost:8000
-- API Docs: http://localhost:8000/docs
+## Development
 
-## Project Structure
-See `DOCUMENTATION.md` for complete architecture, algorithms, pseudocode, and implementation steps.
+Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
 
-## License
-End Time Soldiers Ministry - All rights reserved
+```sh
+git clone <this-repository-url>
+cd <repository-name>
+npm i
+npm run dev
+```
