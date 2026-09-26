@@ -12,9 +12,15 @@ from core.exceptions import app_exception_handler
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=db_engine)
+    try:
+        Base.metadata.create_all(bind=db_engine)
+    except Exception as e:
+        print(f"[DB] create_all skipped: {e}")
     yield
-    db_engine.dispose()
+    try:
+        db_engine.dispose()
+    except Exception:
+        pass
 
 
 app = FastAPI(
