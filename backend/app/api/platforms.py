@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from uuid import UUID
@@ -45,7 +45,7 @@ def connect_platform(platform_data: PlatformCreate, db: Session = Depends(get_db
 @router.put("/{platform_id}/connect")
 def update_connection(
     platform_id: UUID,
-    credentials: dict = Query(...),
+    credentials: dict = Body(default={}),
     status: str = Query("connected"),
     db: Session = Depends(get_db)
 ):

@@ -1,3 +1,5 @@
+from datetime import datetime
+from sqlalchemy.orm import Session
 from celery import Celery
 from celery.schedules import crontab
 from core.config import settings
@@ -69,7 +71,7 @@ def publish_scheduled():
 
 @celery_app.task
 def collect_daily():
-    from models import Analytics, PlatformContent
+    from models import Analytics, PlatformContent, ContentStatus
     from db.session import SessionLocal
     db = SessionLocal()
     try:
@@ -83,7 +85,7 @@ def collect_daily():
         db.close()
 
 
-def collect_post_analytics(post: PlatformContent, db: Session):
+def collect_post_analytics(post, db: Session):
     pass
 
 
@@ -91,7 +93,7 @@ def collect_post_analytics(post: PlatformContent, db: Session):
 def process_video_task(video_id: str):
     from services.video_service import process_video
     from db.session import SessionLocal
-    from models import VideoStatus
+    from models import Video, VideoStatus
     db = SessionLocal()
     try:
         video = db.query(Video).filter(Video.id == video_id).first()

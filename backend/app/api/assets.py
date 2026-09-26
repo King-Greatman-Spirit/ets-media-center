@@ -7,7 +7,7 @@ from db.session import get_db
 from core.security import verify_token
 from models import Asset, AssetType
 from schemas import AssetCreate, AssetResponse
-from services.asset_service import upload_asset, list_assets, generate_graphic
+from services.asset_service import upload_asset, list_assets as list_assets_service, generate_graphic
 
 router = APIRouter()
 
@@ -34,7 +34,7 @@ def list_assets(
     db: Session = Depends(get_db),
     user_id: str = Depends(verify_token)
 ):
-    result = list_assets(asset_type, video_id, skip, limit, db)
+    result = list_assets_service(asset_type, video_id, skip, limit, db)
     return result
 
 

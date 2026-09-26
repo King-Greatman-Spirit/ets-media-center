@@ -5,7 +5,7 @@ from uuid import UUID
 
 from db.session import get_db
 from core.security import verify_token
-from models import Video, VideoStatus, VideoUpdate
+from models import Video, VideoStatus
 from schemas import VideoCreate, VideoResponse, VideoUpdate as VideoUpdateSchema
 from services.video_service import process_video, generate_thumbnail, extract_metadata
 

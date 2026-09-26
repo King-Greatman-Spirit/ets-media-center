@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from uuid import UUID
 
 from db.session import get_db
 from core.security import verify_token
-from models import Clip, ClipUpdate, ContentStatus
+from models import Clip, ContentStatus
 from schemas import ClipCreate, ClipResponse, ClipUpdate as ClipUpdateSchema
 from services.content_service import generate_platform_content
 
