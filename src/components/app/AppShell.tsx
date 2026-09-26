@@ -26,6 +26,16 @@ const NAV = [
   { to: "/connections", label: "Connections", icon: Plug },
 ] as const
 
+export function PageHeader({ eyebrow, title, description }: { eyebrow?: string; title: string; description?: string }) {
+  return (
+    <div className="mb-6">
+      {eyebrow && <p className="font-display text-[11px] uppercase tracking-[0.3em] text-primary">{eyebrow}</p>}
+      <h1 className="font-display text-2xl font-bold">{title}</h1>
+      {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+    </div>
+  )
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, signOut } = useAuth()
   const [open, setOpen] = useState(false)

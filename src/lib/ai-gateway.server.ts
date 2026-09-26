@@ -1,12 +1,11 @@
-import { OpenAI } from "@ai-sdk/openai";
+import { createOpenAI } from "@ai-sdk/openai"
 
 export function createAIGatewayProvider(
   apiKey: string,
-  options?: { structuredOutputs?: boolean },
+  _options?: { structuredOutputs?: boolean },
 ) {
-  const provider = new OpenAI({
+  return createOpenAI({
     apiKey,
     baseURL: "https://api.openai.com/v1",
-  });
-  return provider;
+  })
 }
