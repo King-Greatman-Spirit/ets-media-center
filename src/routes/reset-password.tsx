@@ -28,23 +28,34 @@ function ResetPassword() {
   useEffect(() => {
     const hash = window.location.hash;
     if (hash.includes("type=recovery")) setReady(true);
-    const { data } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") setReady(true);
-    });
-    return () => data.subscription.unsubscribe();
+    let sub: { subscription: { unsubscribe: () => void } } | null = null;
+    try {
+      const { data } = supabase.auth.onAuthStateChange((event) => {
+        if (event === "PASSWORD_RECOVERY") setReady(true);
+      });
+      sub = data;
+    } catch (e) {
+      console.warn("[ResetPassword] Supabase not configured, running logged-out.", e);
+    }
+    return () => sub?.subscription.unsubscribe();
   }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
-    const { error } = await supabase.auth.updateUser({ password });
-    setBusy(false);
-    if (error) {
-      toast.error(error.message);
-      return;
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      toast.success("Password updated.");
+      navigate({ to: "/dashboard", replace: true });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not update password");
+    } finally {
+      setBusy(false);
     }
-    toast.success("Password updated.");
-    navigate({ to: "/dashboard", replace: true });
   }
 
   return (

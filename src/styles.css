@@ -25,6 +25,8 @@
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
+  --color-gold: var(--primary);
+  --color-gold-foreground: var(--primary-foreground);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary-glow: var(--primary-glow);
   --color-secondary: var(--secondary);

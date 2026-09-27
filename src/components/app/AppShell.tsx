@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router"
-import { useState, type ReactNode } from "react"
+import { Fragment, useState, type ReactNode } from "react"
 import {
   LayoutDashboard,
   FolderOpen,
@@ -10,13 +10,32 @@ import {
   Menu,
   X,
   BookOpen,
+  Crown,
+  Eye,
+  Video,
+  ArrowRight,
+  ArrowLeft,
+  CheckCircle2,
+  Circle,
+  Upload,
+  Send,
+  Key,
+  Settings,
+  Shield,
+  Zap,
+  Target,
+  Clock,
+  BookMarked,
+  PenTool,
+  Image,
+  Share2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/hooks/useAuth"
-import { EtsWordmark, ETS_COVER_URL } from "@/components/brand/Brand"
+import { EtsWordmark, EtsCover } from "@/components/brand/Brand"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { UserGuide } from "@/components/app/UserGuide"
+import { Progress } from "@/components/ui/progress"
 
 const NAV = [
   { to: "/dashboard", label: "Overview", icon: LayoutDashboard },
@@ -26,12 +45,25 @@ const NAV = [
   { to: "/connections", label: "Connections", icon: Plug },
 ] as const
 
-export function PageHeader({ eyebrow, title, description }: { eyebrow?: string; title: string; description?: string }) {
+export function PageHeader({
+  eyebrow,
+  title,
+  description,
+  actions,
+}: {
+  eyebrow?: string
+  title: string
+  description?: string
+  actions?: ReactNode
+}) {
   return (
-    <div className="mb-6">
-      {eyebrow && <p className="font-display text-[11px] uppercase tracking-[0.3em] text-primary">{eyebrow}</p>}
-      <h1 className="font-display text-2xl font-bold">{title}</h1>
-      {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+      <div>
+        {eyebrow && <p className="font-display text-[11px] uppercase tracking-[0.3em] text-primary">{eyebrow}</p>}
+        <h1 className="font-display text-2xl font-bold">{title}</h1>
+        {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+      </div>
+      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </div>
   )
 }
@@ -83,12 +115,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="mx-5 mb-4 h-px bg-gradient-to-r from-primary/50 via-primary/10 to-transparent" />
       {nav}
       <div className="mx-3 mb-3 overflow-hidden rounded-lg border border-border/60">
-        <div
-          className="h-16 bg-cover bg-center"
-          style={{ backgroundImage: `url(${ETS_COVER_URL})` }}
-          role="img"
-          aria-label="End Time Soldiers cover"
-        />
+        <EtsCover className="h-16" overlay={false} />
         <p className="px-3 py-2 font-display text-[9px] leading-relaxed tracking-[0.18em] text-muted-foreground">
           RAISING A KINGDOM ARMY FOR SUCH A TIME AS THIS
         </p>
@@ -173,15 +200,17 @@ function UserGuideDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
   const progress = (chapterIndex / CHAPTERS_MAP.length) * 100
 
   const handleNext = () => {
-    if (chapterIndex < CHAPTERS_MAP.length - 1) {
-      setActiveTab(CHAPTERS_MAP[chapterIndex + 1].id)
+    const next = CHAPTERS_MAP[chapterIndex + 1]
+    if (next) {
+      setActiveTab(next.id)
     } else {
       onOpenChange(false)
     }
   }
 
   const handlePrev = () => {
-    if (chapterIndex > 0) setActiveTab(CHAPTERS_MAP[chapterIndex - 1].id)
+    const prev = CHAPTERS_MAP[chapterIndex - 1]
+    if (prev) setActiveTab(prev.id)
   }
 
   if (!currentChapter) return null
@@ -220,7 +249,7 @@ function UserGuideDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
           {currentChapter.content.workflow && (
             <div className="flex flex-wrap gap-2">
               {currentChapter.content.workflow.map((step, i) => (
-                <React.Fragment key={i}>
+                <Fragment key={i}>
                   <div className="flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs">
                     {step.icon}
                     <span>{step.step}</span>
@@ -228,7 +257,7 @@ function UserGuideDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
                   {i < currentChapter.content.workflow.length - 1 && (
                     <ArrowRight className="h-3 w-3 text-muted-foreground" />
                   )}
-                </React.Fragment>
+                </Fragment>
               ))}
             </div>
           )}
@@ -239,7 +268,7 @@ function UserGuideDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
           </Button>
           <div className="flex gap-1">
             {CHAPTERS_MAP.map((_, i) => (
-              <div key={i} className={`h-1.5 w-1.5 rounded-full cursor-pointer ${i === chapterIndex ? 'bg-gold' : 'bg-muted-foreground/30'}`} onClick={() => setActiveTab(CHAPTERS_MAP[i].id)} />
+              <div key={i} className={`h-1.5 w-1.5 rounded-full cursor-pointer ${i === chapterIndex ? 'bg-gold' : 'bg-muted-foreground/30'}`} onClick={() => { const dot = CHAPTERS_MAP[i]; if (dot) setActiveTab(dot.id) }} />
             ))}
           </div>
           <Button size="sm" onClick={handleNext}>
@@ -254,16 +283,6 @@ function UserGuideDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
 // ============================================================
 // GUIDE DATA (inline to avoid import issues)
 // ============================================================
-
-import { Progress } from "@/components/ui/progress"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Badge } from "@/components/ui/badge"
-import {
-  BookOpen, Crown, Eye, FolderOpen, Sparkles, Video, CalendarDays,
-  Plug, Link, ArrowRight, ArrowLeft, CheckCircle2, Circle,
-  Upload, Send, Key, Settings, Shield, Zap, Target, Clock,
-  BookMarked, PenTool, Image, X, Menu,
-} from "lucide-react"
 
 const CHAPTERS_MAP = [
   {
@@ -281,7 +300,7 @@ const CHAPTERS_MAP = [
       workflow: [
         { step: "Upload", icon: <Upload className="h-4 w-4" /> },
         { step: "AI Creates", icon: <Sparkles className="h-4 w-4" /> },
-        { step: "Route", icon: <Link className="h-4 w-4" /> },
+        { step: "Route", icon: <Share2 className="h-4 w-4" /> },
         { step: "Schedule", icon: <CalendarDays className="h-4 w-4" /> },
         { step: "Connect & Publish", icon: <Plug className="h-4 w-4" /> },
       ],
@@ -350,7 +369,7 @@ const CHAPTERS_MAP = [
         { step: "Timestamps", icon: <Clock className="h-4 w-4" /> },
         { step: "AI Extract", icon: <Sparkles className="h-4 w-4" /> },
         { step: "Titles/Hooks", icon: <PenTool className="h-4 w-4" /> },
-        { step: "Channels", icon: <Link className="h-4 w-4" /> },
+        { step: "Channels", icon: <Share2 className="h-4 w-4" /> },
         { step: "Send", icon: <Send className="h-4 w-4" /> },
       ],
     },
@@ -373,7 +392,7 @@ const CHAPTERS_MAP = [
         { step: "Idea", icon: <PenTool className="h-4 w-4" /> },
         { step: "Tone", icon: <Settings className="h-4 w-4" /> },
         { step: "Media", icon: <Image className="h-4 w-4" /> },
-        { step: "Channels", icon: <Link className="h-4 w-4" /> },
+        { step: "Channels", icon: <Share2 className="h-4 w-4" /> },
         { step: "Generate", icon: <Zap className="h-4 w-4" /> },
         { step: "Copy & Schedule", icon: <Send className="h-4 w-4" /> },
       ],
@@ -417,7 +436,7 @@ const CHAPTERS_MAP = [
         "Disconnect to remove a platform link",
       ],
       workflow: [
-        { step: "Connect", icon: <Link className="h-4 w-4" /> },
+        { step: "Connect", icon: <Share2 className="h-4 w-4" /> },
         { step: "Get Keys", icon: <Key className="h-4 w-4" /> },
         { step: "Enter Credentials", icon: <Settings className="h-4 w-4" /> },
         { step: "Save Encrypted", icon: <Shield className="h-4 w-4" /> },
@@ -427,5 +446,3 @@ const CHAPTERS_MAP = [
     },
   },
 ]
-
-export { AppShell }
