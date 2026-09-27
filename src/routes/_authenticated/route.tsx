@@ -8,8 +8,15 @@ import { EtsLogo } from "@/components/brand/Brand";
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: async () => {
     if (typeof window === "undefined") return;
-    const { data } = await supabase.auth.getSession();
-    if (!data.session) throw redirect({ to: "/auth" });
+    try {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) throw redirect({ to: "/auth" });
+    } catch (e) {
+      if (e instanceof Response || (e as { statusCode?: number })?.statusCode) throw e;
+      // Supabase not configured — send to sign-in instead of crashing.
+      console.warn("[Auth] beforeLoad session check failed, redirecting to /auth.", e);
+      throw redirect({ to: "/auth" });
+    }
   },
   component: AuthenticatedLayout,
 });

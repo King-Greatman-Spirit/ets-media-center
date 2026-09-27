@@ -21,15 +21,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
-      setSession(next);
+    let sub: { subscription: { unsubscribe: () => void } } | null = null;
+    try {
+      const { data } = supabase.auth.onAuthStateChange((_event, next) => {
+        setSession(next);
+        setLoading(false);
+      });
+      sub = data;
+    } catch (e) {
+      // No Supabase configured (no .env) — stay logged out instead of crashing.
+      console.warn("[Auth] Supabase not configured, running logged-out.", e);
       setLoading(false);
-    });
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
+    }
+    try {
+      supabase.auth.getSession().then(({ data }) => {
+        setSession(data.session);
+        setLoading(false);
+      }).catch((e) => {
+        console.warn("[Auth] getSession failed.", e);
+        setLoading(false);
+      });
+    } catch (e) {
+      console.warn("[Auth] getSession failed.", e);
       setLoading(false);
-    });
-    return () => sub.subscription.unsubscribe();
+    }
+    return () => sub?.subscription.unsubscribe();
   }, []);
 
   return (
@@ -39,7 +55,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: session?.user ?? null,
         loading,
         signOut: async () => {
-          await supabase.auth.signOut();
+          try {
+            await supabase.auth.signOut();
+          } catch (e) {
+            console.warn("[Auth] signOut failed.", e);
+          }
         },
       }}
     >

@@ -1,9 +1,8 @@
-import logoAsset from "@/assets/ets-logo.jpg.asset.json";
-import coverAsset from "@/assets/ets-cover.jpeg.asset.json";
-import { cn } from "@/lib/utils";
+// Brand assets served locally from /public (no cloud dependency).
+export const ETS_LOGO_URL = "/favicon.png";
+export const ETS_COVER_URL = "/favicon.png";
 
-export const ETS_LOGO_URL = logoAsset.url;
-export const ETS_COVER_URL = coverAsset.url;
+import { cn } from "@/lib/utils";
 
 export function EtsLogo({ className, size = 40 }: { className?: string; size?: number }) {
   return (
