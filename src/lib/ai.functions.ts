@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { PLATFORMS, type PlatformId } from "@/lib/platforms";
 import { createAIGatewayProvider } from "@/lib/ai-gateway.server";
+import { serverEnv } from "@/lib/server-env";
 
 const PLATFORM_IDS = PLATFORMS.map((p) => p.id) as [PlatformId, ...PlatformId[]];
 
@@ -34,7 +35,7 @@ export const repurposeContent = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => RepurposeInput.parse(input))
   .handler(async ({ data }) => {
-    const key = process.env["OPENAI_API_KEY"];
+    const key = serverEnv("OPENAI_API_KEY");
     if (!key) throw new Error("AI is not configured yet.");
 
     const gateway = createAIGatewayProvider(key);

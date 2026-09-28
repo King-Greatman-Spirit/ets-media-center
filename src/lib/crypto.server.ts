@@ -1,7 +1,8 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { serverEnv } from "@/lib/server-env";
 
 function key(): Buffer {
-  const raw = process.env["PLATFORM_CREDENTIALS_KEY"];
+  const raw = serverEnv("PLATFORM_CREDENTIALS_KEY");
   if (!raw) throw new Error("PLATFORM_CREDENTIALS_KEY is not set");
   return createHash("sha256").update(raw).digest();
 }

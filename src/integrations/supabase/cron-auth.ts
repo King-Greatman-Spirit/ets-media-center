@@ -1,8 +1,10 @@
+import { serverEnv } from '@/lib/server-env';
+
 export async function authenticateCronRequest(
   request: Request,
 ): Promise<Response | null> {
-  const currentSecret = process.env['ETS_CRON_SECRET']
-  const previousSecret = process.env['ETS_CRON_SECRET_PREVIOUS']
+  const currentSecret = serverEnv('ETS_CRON_SECRET')
+  const previousSecret = serverEnv('ETS_CRON_SECRET_PREVIOUS')
 
   if (!currentSecret) {
     return new Response('Server configuration error', { status: 500 })
