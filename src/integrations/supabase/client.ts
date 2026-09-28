@@ -67,3 +67,13 @@ export const supabase = new Proxy({} as ReturnType<typeof createSupabaseClient>,
   },
 });
 
+// True when both VITE_SUPABASE_* values are present. Never throws, so UI can
+// tell "not configured" apart from a real sign-in failure.
+export function isSupabaseConfigured(): boolean {
+  const procEnv = typeof process !== "undefined" ? process.env : undefined;
+  const url = import.meta.env["VITE_SUPABASE_URL"] || procEnv?.["SUPABASE_URL"];
+  const key =
+    import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] || procEnv?.["SUPABASE_PUBLISHABLE_KEY"];
+  return Boolean(url && key);
+}
+

@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, isSupabaseConfigured } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,7 @@ type Mode = "signin" | "signup" | "forgot";
 function AuthPage() {
   const { session, loading } = useAuth();
   const navigate = useNavigate();
+  const authConfigured = isSupabaseConfigured();
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -72,13 +73,17 @@ function AuthPage() {
 
   async function google() {
     setBusy(true);
-    const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
-    if (error) {
-      toast.error(error.message ?? "Google sign-in failed");
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: window.location.origin },
+      });
+      if (error) throw error;
+      navigate({ to: "/dashboard", replace: true });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Google sign-in failed");
       setBusy(false);
-      return;
     }
-    navigate({ to: "/dashboard", replace: true });
   }
 
   return (
@@ -132,6 +137,17 @@ function AuthPage() {
               {mode === "forgot" && "We'll email you a reset link."}
             </p>
 
+            {!authConfigured && (
+              <div className="mt-6 rounded-lg border border-warning/50 bg-warning/10 p-4 text-sm">
+                <p className="font-semibold text-warning">Sign-in isn&apos;t configured yet.</p>
+                <p className="mt-1 text-muted-foreground">
+                  Create a Supabase project, then add <code className="text-foreground">VITE_SUPABASE_URL</code> and{" "}
+                  <code className="text-foreground">VITE_SUPABASE_PUBLISHABLE_KEY</code> to a{" "}
+                  <code className="text-foreground">.env</code> file in the project root and restart the dev server.
+                </p>
+              </div>
+            )}
+
             {checkEmail ? (
               <div className="mt-6 rounded-lg border border-primary/30 bg-accent/40 p-4 text-sm">
                 Confirmation sent to <strong>{email}</strong>. Click the link in that email, then sign in.
@@ -164,7 +180,7 @@ function AuthPage() {
                     <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} required autoComplete={mode === "signin" ? "current-password" : "new-password"} />
                   </div>
                 )}
-                <Button type="submit" disabled={busy} className="w-full bg-gold-gradient font-semibold text-primary-foreground hover:opacity-90">
+                <Button type="submit" disabled={busy || !authConfigured} className="w-full bg-gold-gradient font-semibold text-primary-foreground hover:opacity-90">
                   {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   {mode === "signin" && "Sign in"}
                   {mode === "signup" && "Create account"}
@@ -178,7 +194,7 @@ function AuthPage() {
                 <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-widest text-muted-foreground">
                   <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
                 </div>
-                <Button type="button" variant="outline" className="w-full" onClick={google} disabled={busy}>
+                <Button type="button" variant="outline" className="w-full" onClick={google} disabled={busy || !authConfigured}>
                   <GoogleIcon /> Continue with Google
                 </Button>
               </>
