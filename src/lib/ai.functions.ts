@@ -3,8 +3,7 @@ import { streamText, Output, NoObjectGeneratedError } from "ai";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { PLATFORMS, type PlatformId } from "@/lib/platforms";
-import { createAIGatewayProvider } from "@/lib/ai-gateway.server";
-import { serverEnv } from "@/lib/server-env";
+import { createAIModel } from "@/lib/ai-gateway.server";
 
 const PLATFORM_IDS = PLATFORMS.map((p) => p.id) as [PlatformId, ...PlatformId[]];
 
@@ -35,10 +34,12 @@ export const repurposeContent = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => RepurposeInput.parse(input))
   .handler(async ({ data }) => {
-    const key = serverEnv("OPENAI_API_KEY");
-    if (!key) throw new Error("AI is not configured yet.");
-
-    const gateway = createAIGatewayProvider(key);
+    const model = createAIModel();
+    if (!model) {
+      throw new Error(
+        "AI is not configured yet. Add GOOGLE_GENERATIVE_AI_API_KEY (free, no card) or OPENAI_API_KEY (paid) to your .env file.",
+      );
+    }
 
     const targets = PLATFORMS.filter((p) => data.platforms.includes(p.id));
     const platformGuide = targets
@@ -61,7 +62,7 @@ For each platform return: title (headline / subject / hook), body (the full capt
 
     try {
       const result = streamText({
-        model: gateway("gpt-4o-mini"),
+        model,
         system,
         prompt,
         output: Output.object({ schema: OutputSchema }),
