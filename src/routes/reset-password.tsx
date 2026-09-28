@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EtsLogo } from "@/components/brand/Brand";
+import { Eye, EyeOff } from "lucide-react";
 
 export const Route = createFileRoute("/reset-password")({
   head: () => ({
@@ -24,6 +25,7 @@ function ResetPassword() {
   const [password, setPassword] = useState("");
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     const hash = window.location.hash;
@@ -73,7 +75,26 @@ function ResetPassword() {
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="pw">New password</Label>
-              <Input id="pw" type="password" minLength={6} required value={password} onChange={(e) => setPassword(e.target.value)} />
+              <div className="relative">
+                <Input
+                  id="pw"
+                  type={showPassword ? "text" : "password"}
+                  minLength={6}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  aria-pressed={showPassword}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
             <Button type="submit" disabled={busy} className="w-full bg-gold-gradient text-primary-foreground">
               Update password
