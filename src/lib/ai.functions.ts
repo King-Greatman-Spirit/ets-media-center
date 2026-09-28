@@ -3,7 +3,7 @@ import { streamText, Output, NoObjectGeneratedError } from "ai";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { PLATFORMS, type PlatformId } from "@/lib/platforms";
-import { createAIModel } from "@/lib/ai-gateway.server";
+import { createAIModels } from "@/lib/ai-gateway.server";
 
 const PLATFORM_IDS = PLATFORMS.map((p) => p.id) as [PlatformId, ...PlatformId[]];
 
@@ -34,8 +34,8 @@ export const repurposeContent = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => RepurposeInput.parse(input))
   .handler(async ({ data }) => {
-    const model = createAIModel();
-    if (!model) {
+    const models = createAIModels();
+    if (models.length === 0) {
       throw new Error(
         "AI is not configured yet. Add GOOGLE_GENERATIVE_AI_API_KEY (free, no card) or OPENAI_API_KEY (paid) to your .env file.",
       );
@@ -60,28 +60,42 @@ ${platformGuide}
 
 For each platform return: title (headline / subject / hook), body (the full caption or post text formatted for that platform, with line breaks where appropriate), hashtags (array, count appropriate for the platform, none for telegram), formatNotes (short guidance on media format, length, or thread structure), bestTime (suggested posting window).`;
 
-    try {
-      const result = streamText({
-        model,
-        system,
-        prompt,
-        output: Output.object({ schema: OutputSchema }),
-      });
-      const output = await result.output;
-      return { outputs: output.outputs };
-    } catch (error) {
-      if (NoObjectGeneratedError.isInstance(error)) {
-        try {
-          const parsed = OutputSchema.safeParse(JSON.parse(error.text ?? ""));
-          if (parsed.success) return { outputs: parsed.data.outputs };
-        } catch {
-          /* fall through */
+    // Try each configured model in order; free-tier models can be
+    // temporarily out of capacity, so fail over instead of giving up.
+    // maxRetries 0 keeps failover fast (one attempt per model).
+    let lastError: unknown = null;
+    for (const model of models) {
+      try {
+        const result = streamText({
+          model,
+          system,
+          prompt,
+          output: Output.object({ schema: OutputSchema }),
+          maxRetries: 0,
+        });
+        const output = await result.output;
+        return { outputs: output.outputs };
+      } catch (error) {
+        if (NoObjectGeneratedError.isInstance(error)) {
+          try {
+            const parsed = OutputSchema.safeParse(JSON.parse(error.text ?? ""));
+            if (parsed.success) return { outputs: parsed.data.outputs };
+          } catch {
+            /* fall through to next model */
+          }
         }
-        throw new Error("The AI returned an unexpected format. Please try again.");
+        lastError = error;
       }
+    }
+
+    const error = lastError;
+    {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("402")) throw new Error("AI credits are exhausted. Please add credits in your workspace to continue.");
       if (message.includes("429")) throw new Error("AI is rate limited right now. Please wait a moment and try again.");
+      if (message.includes("503") || message.toLowerCase().includes("high demand") || message.toLowerCase().includes("overloaded")) {
+        throw new Error("The AI model is busy right now. Please wait a minute and try again.");
+      }
       throw new Error(`AI generation failed: ${message}`);
     }
   });
