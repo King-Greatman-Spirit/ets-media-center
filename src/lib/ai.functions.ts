@@ -60,7 +60,7 @@ For each platform return: title (headline / subject / hook), body (the full capt
 
     try {
       const result = streamText({
-        model: gateway("google/gemini-3.8-flash"),
+        model: gateway("gpt-4o-mini"),
         system,
         prompt,
         output: Output.object({ schema: OutputSchema }),
