@@ -1,12 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { UploadCloud, Film, Image as ImageIcon, Music, Trash2, Search, Loader2, Eye } from "lucide-react";
+import { UploadCloud, Film, Image as ImageIcon, Music, Trash2, Search, Loader2, Eye, ScanSearch } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/app/AppShell";
 import { mediaQuery, kindFromMime, formatBytes, signedUrl, type MediaAsset } from "@/lib/data";
+import { analyzeMedia } from "@/lib/media.functions";
+import { captureVideoFrames } from "@/lib/video-frames";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -74,11 +77,14 @@ function friendlyUploadError(message: string): string {
 function Library() {
   const qc = useQueryClient();
   const media = useQuery(mediaQuery);
+  const analyze = useServerFn(analyzeMedia);
   const [dragging, setDragging] = useState(false);
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [filter, setFilter] = useState<"all" | "video" | "image" | "audio">("all");
   const [search, setSearch] = useState("");
   const [preview, setPreview] = useState<{ asset: MediaAsset; url: string } | null>(null);
+  const [analyzingId, setAnalyzingId] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<{ name: string; summary: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = useCallback(
@@ -167,6 +173,24 @@ function Library() {
       setPreview({ asset, url: await signedUrl(asset.storage_path) });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not open file");
+    }
+  }
+
+  async function analyzeAsset(asset: MediaAsset) {
+    setAnalyzingId(asset.id);
+    try {
+      let frames: string[] | undefined;
+      if (asset.kind === "video") {
+        toast.message("Reading video frames…");
+        frames = await captureVideoFrames(await signedUrl(asset.storage_path));
+      }
+      const { summary, saved } = await analyze({ data: { assetId: asset.id, frames } });
+      setAnalysis({ name: asset.name, summary });
+      if (saved) qc.invalidateQueries({ queryKey: ["media"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Media analysis failed");
+    } finally {
+      setAnalyzingId(null);
     }
   }
 
@@ -271,21 +295,34 @@ function Library() {
                   <div className="flex h-32 items-center justify-center bg-gradient-to-br from-accent/40 to-card">
                     <Icon className="h-10 w-10 text-primary/70" />
                   </div>
-                  <div className="p-4">
-                    <p className="truncate text-sm font-semibold" title={m.name}>{m.name}</p>
-                    <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                      <Badge variant="outline" className="border-primary/30 text-primary capitalize">{m.kind}</Badge>
-                      {formatBytes(Number(m.size_bytes))} · {format(new Date(m.created_at), "d MMM")}
+                    <div className="p-4">
+                      <p className="truncate text-sm font-semibold" title={m.name}>{m.name}</p>
+                      <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                        <Badge variant="outline" className="border-primary/30 text-primary capitalize">{m.kind}</Badge>
+                        {formatBytes(Number(m.size_bytes))} · {format(new Date(m.created_at), "d MMM")}
+                      </div>
+                      {m.analysis_text && (
+                        <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-muted-foreground">{m.analysis_text}</p>
+                      )}
+                      <div className="mt-3 flex gap-2 opacity-0 transition group-hover:opacity-100">
+                        <Button size="sm" variant="outline" className="flex-1" onClick={() => open(m)}>
+                          <Eye className="mr-1 h-3 w-3" /> Preview
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => analyzeAsset(m)}
+                          disabled={analyzingId === m.id}
+                          aria-label={`Analyze ${m.name}`}
+                          title="Let the AI watch or read this file"
+                        >
+                          {analyzingId === m.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <ScanSearch className="h-3 w-3" />}
+                        </Button>
+                        <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => remove(m)} aria-label="Delete">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="mt-3 flex gap-2 opacity-0 transition group-hover:opacity-100">
-                      <Button size="sm" variant="outline" className="flex-1" onClick={() => open(m)}>
-                        <Eye className="mr-1 h-3 w-3" /> Preview
-                      </Button>
-                      <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => remove(m)} aria-label="Delete">
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
                 </div>
               );
             })}
@@ -299,6 +336,14 @@ function Library() {
           {preview && preview.asset.kind === "video" && <video src={preview.url} controls className="max-h-[70vh] w-full rounded-lg" />}
           {preview && preview.asset.kind === "image" && <img src={preview.url} alt={preview.asset.name} className="max-h-[70vh] w-full rounded-lg object-contain" />}
           {preview && preview.asset.kind === "audio" && <audio src={preview.url} controls className="w-full" />}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!analysis} onOpenChange={(o) => !o && setAnalysis(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle className="font-display">What the AI saw — {analysis?.name}</DialogTitle></DialogHeader>
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/85">{analysis?.summary}</p>
+          <p className="text-xs text-muted-foreground">Saved to this file. Attach it in the AI Studio and the posts will come from this content.</p>
         </DialogContent>
       </Dialog>
     </div>

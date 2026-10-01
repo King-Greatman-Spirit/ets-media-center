@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       media_assets: {
         Row: {
+          analysis_text: string | null
           created_at: string
           duration_seconds: number | null
           height: number | null
@@ -27,10 +28,12 @@ export type Database = {
           size_bytes: number
           storage_path: string
           tags: string[]
+          thumbnail_path: string | null
           user_id: string
           width: number | null
         }
         Insert: {
+          analysis_text?: string | null
           created_at?: string
           duration_seconds?: number | null
           height?: number | null
@@ -42,10 +45,12 @@ export type Database = {
           size_bytes?: number
           storage_path: string
           tags?: string[]
+          thumbnail_path?: string | null
           user_id: string
           width?: number | null
         }
         Update: {
+          analysis_text?: string | null
           created_at?: string
           duration_seconds?: number | null
           height?: number | null
@@ -57,6 +62,7 @@ export type Database = {
           size_bytes?: number
           storage_path?: string
           tags?: string[]
+          thumbnail_path?: string | null
           user_id?: string
           width?: number | null
         }
@@ -147,6 +153,8 @@ export type Database = {
           id: string
           media_asset_id: string | null
           platform: string
+          published_url: string | null
+          publish_error: string | null
           scheduled_at: string
           status: Database["public"]["Enums"]["post_status"]
           title: string
@@ -160,6 +168,8 @@ export type Database = {
           id?: string
           media_asset_id?: string | null
           platform: string
+          published_url?: string | null
+          publish_error?: string | null
           scheduled_at: string
           status?: Database["public"]["Enums"]["post_status"]
           title: string
@@ -173,6 +183,8 @@ export type Database = {
           id?: string
           media_asset_id?: string | null
           platform?: string
+          published_url?: string | null
+          publish_error?: string | null
           scheduled_at?: string
           status?: Database["public"]["Enums"]["post_status"]
           title?: string

@@ -3,12 +3,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Sparkles, Loader2, Copy, CalendarPlus, Check } from "lucide-react";
+import { Sparkles, Loader2, Copy, CalendarPlus, Check, ScanSearch } from "lucide-react";
 import { PageHeader } from "@/components/app/AppShell";
-import { mediaQuery, useUpsertPost } from "@/lib/data";
+import { mediaQuery, useUpsertPost, signedUrl } from "@/lib/data";
 import { PLATFORMS, platformById } from "@/lib/platforms";
 import { PlatformChip } from "@/components/app/PlatformBadge";
 import { repurposeContent } from "@/lib/ai.functions";
+import { analyzeMedia } from "@/lib/media.functions";
+import { captureVideoFrames } from "@/lib/video-frames";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +39,7 @@ function Studio() {
   const qc = useQueryClient();
   const media = useQuery(mediaQuery);
   const run = useServerFn(repurposeContent);
+  const analyze = useServerFn(analyzeMedia);
   const upsertPost = useUpsertPost();
 
   const [idea, setIdea] = useState("");
@@ -44,6 +47,7 @@ function Studio() {
   const [mediaId, setMediaId] = useState<string>("none");
   const [selected, setSelected] = useState<string[]>(["youtube_shorts", "instagram_reels", "tiktok", "x"]);
   const [busy, setBusy] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
   const [outputs, setOutputs] = useState<Output[]>([]);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -51,6 +55,31 @@ function Studio() {
 
   function toggle(id: string) {
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  }
+
+  // Let the AI watch/read the attached media, then feed what it saw into the idea box.
+  async function analyzeAttached() {
+    const target = (media.data ?? []).find((m) => m.id === mediaId);
+    if (!target) {
+      toast.error("Attach a media file first.");
+      return;
+    }
+    setAnalyzing(true);
+    try {
+      let frames: string[] | undefined;
+      if (target.kind === "video") {
+        toast.message("Reading video frames…");
+        frames = await captureVideoFrames(await signedUrl(target.storage_path));
+      }
+      const { summary } = await analyze({ data: { assetId: target.id, frames } });
+      const block = `Attached media shows: ${summary.trim()}`;
+      setIdea((prev) => (prev.trim() ? `${prev.trim()}\n\n${block}` : block));
+      toast.success("Media analyzed — summary added to your idea.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Media analysis failed");
+    } finally {
+      setAnalyzing(false);
+    }
   }
 
   async function generate() {
@@ -163,6 +192,22 @@ function Studio() {
                 ))}
               </SelectContent>
             </Select>
+            {mediaId !== "none" && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={analyzeAttached}
+                disabled={analyzing || busy}
+              >
+                {analyzing ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <ScanSearch className="mr-2 h-3.5 w-3.5" />}
+                {analyzing ? "Watching your media…" : "Analyze attached media"}
+              </Button>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Analyze lets the AI watch or read the file first, so the posts come from its actual content.
+            </p>
           </div>
 
           <div className="space-y-2">
