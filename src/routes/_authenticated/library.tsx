@@ -30,6 +30,47 @@ type Upload = { name: string; progress: number; error?: string };
 
 const KIND_ICON = { video: Film, image: ImageIcon, audio: Music } as const;
 
+// supabase-js has no upload progress callbacks and a hung request never
+// settles, so race every upload against a timeout and always surface the
+// outcome per file — the list must never freeze silently at 35%.
+const UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;
+
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `Upload timed out after ${Math.round(ms / 60000)} minutes. Try a smaller file or a faster connection.`,
+          ),
+        ),
+      ms,
+    );
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function friendlyUploadError(message: string): string {
+  if (/bucket not found/i.test(message)) {
+    return "Storage is not set up yet (missing 'media' bucket). Apply the database migrations in Supabase, then retry.";
+  }
+  if (/row-level security|policy|permission|unauthorized|invalid.*token|jwt/i.test(message)) {
+    return "Upload blocked by storage permissions. Sign in again; if it persists, check the storage policies in Supabase.";
+  }
+  if (/exceed|too large|maximum|file size/i.test(message)) {
+    return "File is too large for your Supabase plan. Try a smaller file.";
+  }
+  if (/relation .* does not exist|does not exist|schema cache/i.test(message)) {
+    return "Database tables are missing. Apply the database migrations in Supabase, then retry.";
+  }
+  return message;
+}
+
 function Library() {
   const qc = useQueryClient();
   const media = useQuery(mediaQuery);
@@ -54,38 +95,53 @@ function Library() {
       let ok = 0;
 
       for (const [i, file] of list.entries()) {
-        const kind = kindFromMime(file.type);
-        if (!kind) {
-          setUploads((u) => u.map((x, idx) => (idx === i ? { ...x, error: "Unsupported file type" } : x)));
-          continue;
-        }
-        const path = `${auth.user.id}/${crypto.randomUUID()}-${file.name.replace(/[^\w.\-]/g, "_")}`;
-        setUploads((u) => u.map((x, idx) => (idx === i ? { ...x, progress: 35 } : x)));
+        try {
+          const kind = kindFromMime(file.type);
+          if (!kind) {
+            setUploads((u) => u.map((x, idx) => (idx === i ? { ...x, error: "Unsupported file type" } : x)));
+            continue;
+          }
+          const path = `${auth.user.id}/${crypto.randomUUID()}-${file.name.replace(/[^\w.\-]/g, "_")}`;
+          setUploads((u) => u.map((x, idx) => (idx === i ? { ...x, progress: 35 } : x)));
 
-        const { error: upErr } = await supabase.storage.from("media").upload(path, file, {
-          contentType: file.type,
-          upsert: false,
-        });
-        if (upErr) {
-          setUploads((u) => u.map((x, idx) => (idx === i ? { ...x, error: upErr.message } : x)));
-          continue;
-        }
-        setUploads((u) => u.map((x, idx) => (idx === i ? { ...x, progress: 80 } : x)));
+          const { error: upErr } = await withTimeout(
+            supabase.storage.from("media").upload(path, file, {
+              contentType: file.type,
+              upsert: false,
+            }),
+            UPLOAD_TIMEOUT_MS,
+          );
+          if (upErr) {
+            setUploads((u) => u.map((x, idx) => (idx === i ? { ...x, error: friendlyUploadError(upErr.message) } : x)));
+            continue;
+          }
+          setUploads((u) => u.map((x, idx) => (idx === i ? { ...x, progress: 80 } : x)));
 
-        const { error: dbErr } = await supabase.from("media_assets").insert({
-          user_id: auth.user.id,
-          name: file.name,
-          kind,
-          storage_path: path,
-          mime_type: file.type,
-          size_bytes: file.size,
-        });
-        if (dbErr) {
-          setUploads((u) => u.map((x, idx) => (idx === i ? { ...x, error: dbErr.message } : x)));
-          continue;
+          const { error: dbErr } = await supabase.from("media_assets").insert({
+            user_id: auth.user.id,
+            name: file.name,
+            kind,
+            storage_path: path,
+            mime_type: file.type,
+            size_bytes: file.size,
+          });
+          if (dbErr) {
+            // Don't orphan the file in storage when the row insert fails.
+            await supabase.storage.from("media").remove([path]).catch(() => {});
+            setUploads((u) => u.map((x, idx) => (idx === i ? { ...x, error: friendlyUploadError(dbErr.message) } : x)));
+            continue;
+          }
+          ok++;
+          setUploads((u) => u.map((x, idx) => (idx === i ? { ...x, progress: 100 } : x)));
+        } catch (e) {
+          setUploads((u) =>
+            u.map((x, idx) =>
+              idx === i
+                ? { ...x, error: friendlyUploadError(e instanceof Error ? e.message : "Upload failed") }
+                : x,
+            ),
+          );
         }
-        ok++;
-        setUploads((u) => u.map((x, idx) => (idx === i ? { ...x, progress: 100 } : x)));
       }
 
       await qc.invalidateQueries({ queryKey: ["media"] });
