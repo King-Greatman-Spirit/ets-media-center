@@ -9,6 +9,6 @@ VALUES (
   'media',
   false,
   524288000,
-  'video/mp4,video/webm,video/quicktime,video/ogg,image/jpeg,image/png,image/webp,image/gif,audio/mpeg,audio/wav,audio/ogg'
+  ARRAY['video/mp4','video/webm','video/quicktime','video/ogg','image/jpeg','image/png','image/webp','image/gif','audio/mpeg','audio/wav','audio/ogg']
 )
 ON CONFLICT (id) DO NOTHING;
