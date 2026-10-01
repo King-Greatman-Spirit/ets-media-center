@@ -1,6 +1,38 @@
 // Captures lightweight JPEG stills from a playable video entirely in the
 // browser, so the AI can "watch" a video without uploading gigabytes anywhere.
 
+/** Fast metadata probe (no seeking): duration in seconds plus dimensions. */
+export async function probeVideoMeta(
+  url: string,
+): Promise<{ duration: number; width: number; height: number }> {
+  const video = document.createElement("video");
+  video.muted = true;
+  video.preload = "metadata";
+  video.crossOrigin = "anonymous";
+  try {
+    video.src = url;
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Video metadata timed out.")), 15000);
+      video.onloadedmetadata = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      video.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error("Could not read this video."));
+      };
+    });
+    return {
+      duration: Number.isFinite(video.duration) ? video.duration : 0,
+      width: video.videoWidth || 0,
+      height: video.videoHeight || 0,
+    };
+  } finally {
+    video.removeAttribute("src");
+    video.load();
+  }
+}
+
 function seekTo(video: HTMLVideoElement, time: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {

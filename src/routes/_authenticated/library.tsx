@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { UploadCloud, Film, Image as ImageIcon, Music, Trash2, Search, Loader2, Eye, ScanSearch } from "lucide-react";
@@ -9,7 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/app/AppShell";
 import { mediaQuery, kindFromMime, formatBytes, signedUrl, type MediaAsset } from "@/lib/data";
 import { analyzeMedia } from "@/lib/media.functions";
-import { captureVideoFrames } from "@/lib/video-frames";
+import { captureVideoFrames, probeVideoMeta } from "@/lib/video-frames";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +32,38 @@ export const Route = createFileRoute("/_authenticated/library")({
 type Upload = { name: string; progress: number; error?: string };
 
 const KIND_ICON = { video: Film, image: ImageIcon, audio: Music } as const;
+
+/** Card cover: the image itself, a captured video frame, or a kind icon fallback. */
+function AssetCover({ asset }: { asset: MediaAsset }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const coverPath = asset.kind === "image" ? asset.storage_path : asset.thumbnail_path;
+  useEffect(() => {
+    if (!coverPath) {
+      setUrl(null);
+      return;
+    }
+    let live = true;
+    signedUrl(coverPath)
+      .then((u) => {
+        if (live) setUrl(u);
+      })
+      .catch(() => {
+        if (live) setUrl(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [coverPath]);
+  if (url) {
+    return <img src={url} alt={asset.name} loading="lazy" className="h-32 w-full object-cover" />;
+  }
+  const Icon = KIND_ICON[asset.kind];
+  return (
+    <div className="flex h-32 items-center justify-center bg-gradient-to-br from-accent/40 to-card">
+      <Icon className="h-10 w-10 text-primary/70" />
+    </div>
+  );
+}
 
 // supabase-js has no upload progress callbacks and a hung request never
 // settles, so race every upload against a timeout and always surface the
@@ -123,6 +155,40 @@ function Library() {
           }
           setUploads((u) => u.map((x, idx) => (idx === i ? { ...x, progress: 80 } : x)));
 
+          // Best-effort video extras: thumbnail frame plus dimensions. Never
+          // allowed to fail the upload itself.
+          let thumbnail_path: string | null = null;
+          let duration_seconds: number | null = null;
+          let width: number | null = null;
+          let height: number | null = null;
+          if (kind === "video") {
+            try {
+              const objectUrl = URL.createObjectURL(file);
+              try {
+                const meta = await probeVideoMeta(objectUrl);
+                if (meta.duration > 0) duration_seconds = meta.duration;
+                if (meta.width > 0) {
+                  width = meta.width;
+                  height = meta.height;
+                }
+                const [frame] = await captureVideoFrames(objectUrl, 1, 640);
+                if (frame) {
+                  const blob = await (await fetch(frame)).blob();
+                  const thumbPath = `${auth.user.id}/thumbs/${crypto.randomUUID()}.jpg`;
+                  const { error: thumbErr } = await supabase.storage.from("media").upload(thumbPath, blob, {
+                    contentType: "image/jpeg",
+                    upsert: true,
+                  });
+                  if (!thumbErr) thumbnail_path = thumbPath;
+                }
+              } finally {
+                URL.revokeObjectURL(objectUrl);
+              }
+            } catch {
+              // Thumbnails are decorative; the upload already succeeded.
+            }
+          }
+
           const { error: dbErr } = await supabase.from("media_assets").insert({
             user_id: auth.user.id,
             name: file.name,
@@ -130,6 +196,10 @@ function Library() {
             storage_path: path,
             mime_type: file.type,
             size_bytes: file.size,
+            thumbnail_path,
+            duration_seconds,
+            width,
+            height,
           });
           if (dbErr) {
             // Don't orphan the file in storage when the row insert fails.
@@ -289,13 +359,10 @@ function Library() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {items.map((m) => {
-              const Icon = KIND_ICON[m.kind];
               return (
                 <div key={m.id} className="panel group overflow-hidden transition hover:gold-ring">
-                  <div className="flex h-32 items-center justify-center bg-gradient-to-br from-accent/40 to-card">
-                    <Icon className="h-10 w-10 text-primary/70" />
-                  </div>
-                    <div className="p-4">
+                  <AssetCover asset={m} />
+                  <div className="p-4">
                       <p className="truncate text-sm font-semibold" title={m.name}>{m.name}</p>
                       <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
                         <Badge variant="outline" className="border-primary/30 text-primary capitalize">{m.kind}</Badge>
