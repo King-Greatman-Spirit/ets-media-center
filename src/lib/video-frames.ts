@@ -96,3 +96,55 @@ export async function captureVideoFrames(
     video.load();
   }
 }
+
+/** A captured still with its timestamp in seconds. */
+export type TimestampedFrame = { at: number; image: string };
+
+/** Capture `count` evenly spaced stills with timestamps (≤ maxWidth px each). */
+export async function captureTimestampedFrames(
+  url: string,
+  count = 8,
+  maxWidth = 560,
+): Promise<TimestampedFrame[]> {
+  const video = document.createElement("video");
+  video.muted = true;
+  video.preload = "auto";
+  video.crossOrigin = "anonymous";
+
+  try {
+    video.src = url;
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("This video took too long to load.")), 30000);
+      video.onloadedmetadata = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      video.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error("Could not load this video for splitting."));
+      };
+    });
+
+    const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+    const canvas = document.createElement("canvas");
+    const frames: TimestampedFrame[] = [];
+    for (let k = 1; k <= count; k++) {
+      const at = duration ? (duration * k) / (count + 1) : 0;
+      try {
+        await seekTo(video, at);
+        const scale = Math.min(1, maxWidth / (video.videoWidth || maxWidth));
+        canvas.width = Math.max(2, Math.round((video.videoWidth || 320) * scale));
+        canvas.height = Math.max(2, Math.round((video.videoHeight || 240) * scale));
+        canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+        frames.push({ at, image: canvas.toDataURL("image/jpeg", 0.72) });
+      } catch {
+        // Skip frames that fail to seek; keep whatever we captured.
+      }
+    }
+    if (frames.length < 2) throw new Error("Could not read enough frames from this video to split it.");
+    return frames;
+  } finally {
+    video.removeAttribute("src");
+    video.load();
+  }
+}

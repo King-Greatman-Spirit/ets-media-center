@@ -4,12 +4,13 @@ import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { UploadCloud, Film, Image as ImageIcon, Music, Trash2, Search, Loader2, Eye, ScanSearch } from "lucide-react";
+import { UploadCloud, Film, Image as ImageIcon, Music, Trash2, Search, Loader2, Eye, ScanSearch, Scissors } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/app/AppShell";
 import { mediaQuery, kindFromMime, formatBytes, signedUrl, type MediaAsset } from "@/lib/data";
 import { analyzeMedia } from "@/lib/media.functions";
-import { captureVideoFrames, probeVideoMeta } from "@/lib/video-frames";
+import { splitVideo } from "@/lib/clips.functions";
+import { captureVideoFrames, captureTimestampedFrames, probeVideoMeta } from "@/lib/video-frames";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -110,12 +111,14 @@ function Library() {
   const qc = useQueryClient();
   const media = useQuery(mediaQuery);
   const analyze = useServerFn(analyzeMedia);
+  const split = useServerFn(splitVideo);
   const [dragging, setDragging] = useState(false);
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [filter, setFilter] = useState<"all" | "video" | "image" | "audio">("all");
   const [search, setSearch] = useState("");
   const [preview, setPreview] = useState<{ asset: MediaAsset; url: string } | null>(null);
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
+  const [splittingId, setSplittingId] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<{ name: string; summary: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -264,6 +267,39 @@ function Library() {
     }
   }
 
+  async function splitAsset(asset: MediaAsset) {
+    if (asset.kind !== "video") return;
+    setSplittingId(asset.id);
+    try {
+      const url = await signedUrl(asset.storage_path);
+      let duration = Number(asset.duration_seconds) || 0;
+      if (!duration) {
+        const meta = await probeVideoMeta(url);
+        duration = meta.duration;
+      }
+      if (!duration || duration < 45) {
+        toast.error("This video is too short to split — clips work best past 45 seconds.");
+        return;
+      }
+      toast.message("Watching for the best moments…");
+      const frames = await captureTimestampedFrames(url, 8);
+      toast.message("Cutting clips — this can take a minute…");
+      const { clips } = await split({
+        data: { assetId: asset.id, duration, frames, targetSeconds: 60 },
+      });
+      await qc.invalidateQueries({ queryKey: ["media"] });
+      toast.success(
+        clips.length === 1
+          ? `1 clip cut: ${clips[0]!.title}`
+          : `${clips.length} clips cut from ${asset.name}.`,
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Splitting failed");
+    } finally {
+      setSplittingId(null);
+    }
+  }
+
   const items = (media.data ?? []).filter(
     (m) => (filter === "all" || m.kind === filter) && m.name.toLowerCase().includes(search.toLowerCase()),
   );
@@ -375,6 +411,18 @@ function Library() {
                         <Button size="sm" variant="outline" className="flex-1" onClick={() => open(m)}>
                           <Eye className="mr-1 h-3 w-3" /> Preview
                         </Button>
+                        {m.kind === "video" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => splitAsset(m)}
+                            disabled={splittingId === m.id || analyzingId === m.id}
+                            aria-label={`Split ${m.name} into clips`}
+                            title="Split into ~1 minute highlight clips"
+                          >
+                            {splittingId === m.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Scissors className="h-3 w-3" />}
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="outline"
