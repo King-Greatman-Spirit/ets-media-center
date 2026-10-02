@@ -107,8 +107,11 @@ function Studio() {
   }
 
   async function generate() {
-    if (!idea.trim()) {
-      toast.error("Describe the idea or message first.");
+    const baseIdea =
+      idea.trim() ||
+      (asset?.analysis_text ? `Create platform posts from this media: ${asset.analysis_text}` : "");
+    if (!baseIdea) {
+      toast.error("Describe the idea or message first, or attach analyzed media.");
       return;
     }
     if (selected.length === 0) {
@@ -118,9 +121,16 @@ function Studio() {
     setBusy(true);
     setOutputs([]);
     try {
+      // The attached file always shapes the captions: its saved AI analysis
+      // (or at minimum its name and kind) travels with the idea, whether or
+      // not Analyze was clicked in this session.
+      const attached = asset
+        ? `Attached media (${asset.kind} "${asset.name}")${asset.analysis_text ? ` shows: ${asset.analysis_text}` : ""}.`
+        : "";
+      const fullIdea = (attached ? `${baseIdea}\n\n${attached}` : baseIdea).slice(0, 6000);
       const result = await run({
         data: {
-          idea: idea.trim(),
+          idea: fullIdea,
           tone,
           platforms: selected,
           mediaName: asset?.name ?? null,
@@ -132,7 +142,7 @@ function Studio() {
       if (auth.user) {
         await supabase.from("repurpose_sessions").insert({
           user_id: auth.user.id,
-          source_idea: idea.trim(),
+          source_idea: baseIdea,
           tone,
           media_asset_id: asset?.id ?? null,
           outputs: result.outputs,
