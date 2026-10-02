@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Sparkles, Loader2, Copy, CalendarPlus, Check, ScanSearch, Send } from "lucide-react";
 import { PageHeader } from "@/components/app/AppShell";
@@ -51,6 +51,27 @@ function Studio() {
   const [busy, setBusy] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [posting, setPosting] = useState<string | null>(null);
+  const [attachUrl, setAttachUrl] = useState<string | null>(null);
+
+  // Preview URL for the attached file, so the results visibly travel with it.
+  useEffect(() => {
+    const target = (media.data ?? []).find((m) => m.id === mediaId);
+    if (!target) {
+      setAttachUrl(null);
+      return;
+    }
+    let live = true;
+    signedUrl(target.storage_path)
+      .then((u) => {
+        if (live) setAttachUrl(u);
+      })
+      .catch(() => {
+        if (live) setAttachUrl(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [mediaId, media.data]);
   const [outputs, setOutputs] = useState<Output[]>([]);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -267,6 +288,25 @@ function Studio() {
         </div>
 
         <div className="space-y-4">
+          {asset && (
+            <div className="panel flex items-center gap-4 p-4">
+              {asset.kind === "video" && attachUrl && (
+                <video src={attachUrl} controls muted preload="metadata" className="h-20 w-32 shrink-0 rounded-lg object-cover" />
+              )}
+              {asset.kind === "image" && attachUrl && (
+                <img src={attachUrl} alt={asset.name} className="h-20 w-32 shrink-0 rounded-lg object-cover" />
+              )}
+              {asset.kind === "audio" && attachUrl && (
+                <audio src={attachUrl} controls preload="metadata" className="w-48 shrink-0" />
+              )}
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">{asset.name}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Attached — every post below is written for this file, and Schedule / Post carries it along.
+                </p>
+              </div>
+            </div>
+          )}
           {busy && outputs.length === 0 && (
             <div className="panel flex flex-col items-center gap-3 p-16 text-center">
               <Loader2 className="h-7 w-7 animate-spin text-primary" />
