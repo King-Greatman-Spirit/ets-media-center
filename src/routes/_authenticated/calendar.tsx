@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import {
@@ -15,10 +16,11 @@ import {
   startOfWeek,
   subMonths,
 } from "date-fns";
-import { ChevronLeft, ChevronRight, Plus, Trash2, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Trash2, Loader2, Send, ExternalLink } from "lucide-react";
 import { PageHeader } from "@/components/app/AppShell";
 import { mediaQuery, postsQuery, useDeletePost, useUpsertPost, type ScheduledPost } from "@/lib/data";
 import { PLATFORMS, platformById } from "@/lib/platforms";
+import { publishPost } from "@/lib/publish.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,9 +46,33 @@ const STATUSES = ["draft", "scheduled", "published", "failed"] as const;
 
 function CalendarPage() {
   const posts = useQuery(postsQuery);
+  const qc = useQueryClient();
+  const runPublish = useServerFn(publishPost);
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [editing, setEditing] = useState<Partial<ScheduledPost> | null>(null);
+  const [postingId, setPostingId] = useState<string | null>(null);
   const del = useDeletePost();
+
+  async function postNow(post: ScheduledPost) {
+    const platform = platformById(post.platform);
+    if (!platform?.autoPublish) {
+      toast.error(
+        `${platform?.name ?? "This platform"} auto-posting is not live yet — open the Studio output and use Copy instead.`,
+      );
+      return;
+    }
+    setPostingId(post.id);
+    try {
+      await runPublish({ data: { postId: post.id } });
+      await qc.invalidateQueries({ queryKey: ["posts"] });
+      toast.success(`Posted to ${platform.name}.`);
+    } catch (err) {
+      await qc.invalidateQueries({ queryKey: ["posts"] });
+      toast.error(err instanceof Error ? err.message : "Publishing failed");
+    } finally {
+      setPostingId(null);
+    }
+  }
 
   const days = useMemo(
     () =>

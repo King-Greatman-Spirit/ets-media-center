@@ -26,6 +26,8 @@ export type Platform = {
   format: string;
   docsUrl: string;
   fields: CredentialField[];
+  /** true when one-click auto-posting is implemented for this channel */
+  autoPublish?: boolean;
 };
 
 export const PLATFORMS: Platform[] = [
@@ -137,6 +139,7 @@ export const PLATFORMS: Platform[] = [
     charLimit: 4096,
     format: "Broadcast style, bold headline, emojis sparingly, direct link, no hashtags needed",
     docsUrl: "https://core.telegram.org/bots#botfather",
+    autoPublish: true,
     fields: [
       { key: "bot_token", label: "Bot Token", secret: true, hint: "From @BotFather" },
       { key: "chat_id", label: "Channel / Chat ID", hint: "e.g. @yourchannel or -100…" },

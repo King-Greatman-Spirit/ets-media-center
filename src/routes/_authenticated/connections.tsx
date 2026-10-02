@@ -56,8 +56,9 @@ function Connections() {
       <div className="panel mb-6 flex items-start gap-3 border-primary/30 p-4">
         <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
         <p className="text-sm text-muted-foreground">
-          Keys are encrypted on the server before storage and only your account can read them. Automatic publishing to
-          these channels is the next phase — for now connections power status and readiness checks.
+          Keys are encrypted on the server before storage and only your account can read them. Telegram auto-posting
+          is live — connect it to post straight from the Studio or Calendar. Other channels still need their own
+          developer apps and approvals; their connections power status and readiness checks for now.
         </p>
       </div>
 
@@ -78,6 +79,9 @@ function Connections() {
                   <Badge className="bg-success/15 text-success hover:bg-success/15">Connected</Badge>
                 ) : (
                   <Badge variant="outline" className="text-muted-foreground">Not linked</Badge>
+                )}
+                {p.autoPublish && (
+                  <Badge variant="outline" className="ml-1 border-primary/30 text-primary">Auto-post</Badge>
                 )}
               </div>
 

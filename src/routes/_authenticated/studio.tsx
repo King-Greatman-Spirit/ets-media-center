@@ -3,13 +3,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Sparkles, Loader2, Copy, CalendarPlus, Check, ScanSearch } from "lucide-react";
+import { Sparkles, Loader2, Copy, CalendarPlus, Check, ScanSearch, Send } from "lucide-react";
 import { PageHeader } from "@/components/app/AppShell";
 import { mediaQuery, useUpsertPost, signedUrl } from "@/lib/data";
 import { PLATFORMS, platformById } from "@/lib/platforms";
 import { PlatformChip } from "@/components/app/PlatformBadge";
 import { repurposeContent } from "@/lib/ai.functions";
 import { analyzeMedia } from "@/lib/media.functions";
+import { publishPost } from "@/lib/publish.functions";
 import { captureVideoFrames } from "@/lib/video-frames";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ function Studio() {
   const media = useQuery(mediaQuery);
   const run = useServerFn(repurposeContent);
   const analyze = useServerFn(analyzeMedia);
+  const runPublish = useServerFn(publishPost);
   const upsertPost = useUpsertPost();
 
   const [idea, setIdea] = useState("");
@@ -48,6 +50,7 @@ function Studio() {
   const [selected, setSelected] = useState<string[]>(["youtube_shorts", "instagram_reels", "tiktok", "x"]);
   const [busy, setBusy] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [posting, setPosting] = useState<string | null>(null);
   const [outputs, setOutputs] = useState<Output[]>([]);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -147,6 +150,44 @@ function Studio() {
       toast.success("Added to the calendar as a draft for tomorrow 10:00.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not schedule");
+    }
+  }
+
+  async function postOutput(o: Output) {
+    const platform = platformById(o.platform);
+    if (!platform?.autoPublish) {
+      toast.error(
+        `${platform?.name ?? "This platform"} auto-posting is not live yet — use Copy, then paste in the app.`,
+      );
+      return;
+    }
+    setPosting(o.platform);
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth.user) throw new Error("Please sign in again.");
+      const { data: row, error } = await supabase
+        .from("scheduled_posts")
+        .insert({
+          user_id: auth.user.id,
+          title: o.title,
+          content: `${o.body}\n\n${o.hashtags.join(" ")}`.trim(),
+          platform: o.platform,
+          status: "scheduled",
+          scheduled_at: new Date().toISOString(),
+          hashtags: o.hashtags,
+          media_asset_id: asset?.id ?? null,
+        })
+        .select("id")
+        .single();
+      if (error || !row) throw new Error(error?.message ?? "Could not save post");
+      await runPublish({ data: { postId: row.id, platforms: [platform.id] } });
+      qc.invalidateQueries({ queryKey: ["posts"] });
+      toast.success(`Posted to ${platform.name}.`);
+    } catch (err) {
+      qc.invalidateQueries({ queryKey: ["posts"] });
+      toast.error(err instanceof Error ? err.message : "Publishing failed");
+    } finally {
+      setPosting(null);
     }
   }
 
@@ -259,6 +300,9 @@ function Studio() {
                   </Button>
                   <Button size="sm" variant="ghost" className="text-primary" onClick={() => schedule(o)}>
                     <CalendarPlus className="mr-1 h-3 w-3" /> Schedule
+                  </Button>
+                  <Button size="sm" variant="ghost" className="text-primary" onClick={() => postOutput(o)} disabled={posting === o.platform}>
+                    {posting === o.platform ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Send className="mr-1 h-3 w-3" />} Post
                   </Button>
                 </header>
                 <h3 className="mt-4 font-display text-lg font-semibold">{o.title}</h3>
