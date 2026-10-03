@@ -105,6 +105,8 @@ export async function captureTimestampedFrames(
   url: string,
   count = 8,
   maxWidth = 560,
+  from?: number,
+  to?: number,
 ): Promise<TimestampedFrame[]> {
   const video = document.createElement("video");
   video.muted = true;
@@ -126,10 +128,12 @@ export async function captureTimestampedFrames(
     });
 
     const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+    const lo = Math.max(0, Math.min(from ?? 0, Math.max(duration - 1, 0)));
+    const hi = Math.max(lo + 1, Math.min(to ?? duration, Math.max(duration, 1)));
     const canvas = document.createElement("canvas");
     const frames: TimestampedFrame[] = [];
     for (let k = 1; k <= count; k++) {
-      const at = duration ? (duration * k) / (count + 1) : 0;
+      const at = lo + ((hi - lo) * k) / (count + 1);
       try {
         await seekTo(video, at);
         const scale = Math.min(1, maxWidth / (video.videoWidth || maxWidth));

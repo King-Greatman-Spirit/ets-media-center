@@ -4,7 +4,7 @@ import { mkdir, readdir, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { serverEnv } from "@/lib/server-env";
-import { detectVideoMoments, sanitizeMoments } from "@/lib/moments.server";
+import { detectVideoMoments, clampMoment } from "@/lib/moments.server";
 import { cutUploadRegisterClip } from "@/lib/cutting.server";
 
 // Batch pipeline for big local videos: the drop folder lives on the same
@@ -68,6 +68,8 @@ const DetectInput = z
       .min(2)
       .max(12),
     targetSeconds: z.number().min(20).max(120).default(60),
+    focusStart: z.number().min(0).optional(),
+    focusEnd: z.number().min(1).optional(),
   })
   .refine((d) => (d.assetId ? 1 : 0) + (d.filename ? 1 : 0) === 1, {
     message: "Provide a library asset or an inbox file.",
@@ -110,6 +112,8 @@ export const detectMoments = createServerFn({ method: "POST" })
       duration,
       targetSeconds: data.targetSeconds,
       frames: data.frames,
+      focusStart: data.focusStart,
+      focusEnd: data.focusEnd,
     });
     return { moments };
   });
@@ -136,7 +140,8 @@ export const cutInboxClip = createServerFn({ method: "POST" })
     const full = safeJoin(dir, data.filename);
     const st = await stat(full).catch(() => null);
     if (!st?.isFile()) throw new Error("File not found in the inbox folder.");
-    const [moment] = sanitizeMoments([data.moment], 3 * 3600, 120);
+    // Bounds-check only: detection already validated lengths.
+    const moment = clampMoment(data.moment, 3 * 3600);
     if (!moment) throw new Error("Invalid clip range.");
     const baseName = basename(data.filename).replace(/\.[a-z0-9]+$/i, "");
     return cutUploadRegisterClip({
@@ -176,7 +181,8 @@ export const cutLibraryClip = createServerFn({ method: "POST" })
     if (assetError) throw new Error(assetError.message);
     if (!asset) throw new Error("Video not found.");
     if (asset.kind !== "video") throw new Error("Only videos can be split.");
-    const [moment] = sanitizeMoments([data.moment], 3 * 3600, 120);
+    // Bounds-check only: detection already validated lengths.
+    const moment = clampMoment(data.moment, 3 * 3600);
     if (!moment) throw new Error("Invalid clip range.");
 
     const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
@@ -207,6 +213,8 @@ export const cutLibraryClip = createServerFn({ method: "POST" })
 const FramesInput = z.object({
   filename: z.string().min(1).max(200),
   count: z.number().int().min(2).max(12).default(10),
+  from: z.number().min(0).optional(),
+  to: z.number().min(1).optional(),
 });
 
 /** Pull evenly spaced JPEG stills from an inbox file with ffmpeg. */
@@ -219,8 +227,10 @@ export const extractFrames = createServerFn({ method: "POST" })
     const st = await stat(full).catch(() => null);
     if (!st?.isFile()) throw new Error("File not found in the inbox folder. Drop it in and retry.");
     const { probeDurationSeconds, ffmpegBinary } = await import("@/lib/cutting.server");
-    const duration = await probeDurationSeconds(full);
-    if (!duration) throw new Error("Could not read this video's length.");
+    const fullDuration = await probeDurationSeconds(full);
+    if (!fullDuration) throw new Error("Could not read this video's length.");
+    const from = Math.max(0, Math.min(data.from ?? 0, fullDuration - 1));
+    const to = Math.max(from + 1, Math.min(data.to ?? fullDuration, fullDuration));
     const { mkdtemp, rm, readFile } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
@@ -231,7 +241,7 @@ export const extractFrames = createServerFn({ method: "POST" })
     try {
       const frames: { at: number; image: string }[] = [];
       for (let k = 1; k <= data.count; k++) {
-        const at = (duration * k) / (data.count + 1);
+        const at = from + ((to - from) * k) / (data.count + 1);
         const out = join(workdir, `f${k}.jpg`);
         try {
           await execFileAsync(
@@ -246,7 +256,7 @@ export const extractFrames = createServerFn({ method: "POST" })
         }
       }
       if (frames.length < 2) throw new Error("Could not read frames from this file.");
-      return { duration, frames };
+      return { duration: fullDuration, frames };
     } finally {
       await rm(workdir, { recursive: true, force: true }).catch(() => {});
     }

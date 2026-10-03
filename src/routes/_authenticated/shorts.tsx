@@ -115,33 +115,96 @@ function Shorts() {
     }
     const targetSeconds = Number(targetLen);
     setPhase("detecting");
-    setProgress("Watching for the best moments…");
     setMoments(null);
     setClips([]);
     setDrafts(0);
     try {
+      // Long videos are scanned in ~10-minute sections so the AI looks closely
+      // instead of guessing across the whole hour at once.
+      const SEGMENT = 10 * 60;
+      const MAX_SEGMENTS = 8;
+
+      let fullDuration = 0;
+      let libraryUrl: string | null = null;
       if (source.kind === "library") {
-        const url = await signedUrl(source.asset.storage_path);
-        let duration = Number(source.asset.duration_seconds) || 0;
-        if (!duration) duration = (await probeVideoMeta(url)).duration;
-        if (!duration) throw new Error("Could not determine this video's length.");
-        const frames = await captureTimestampedFrames(url, 10);
-        const { moments: found } = await runDetect({
-          data: { assetId: source.asset.id, duration, frames, targetSeconds },
-        });
-        setMoments(found.map((m) => ({ ...m, checked: true })));
+        libraryUrl = await signedUrl(source.asset.storage_path);
+        fullDuration = Number(source.asset.duration_seconds) || 0;
+        if (!fullDuration) fullDuration = (await probeVideoMeta(libraryUrl)).duration;
+        if (!fullDuration) throw new Error("Could not determine this video's length.");
       } else {
-        setProgress("Reading frames from disk…");
-        const { duration, frames } = await runFrames({ data: { filename: source.filename, count: 10 } });
-        setProgress("Watching for the best moments…");
-        const { moments: found } = await runDetect({
-          data: { filename: source.filename, duration, frames, targetSeconds },
-        });
-        setMoments(found.map((m) => ({ ...m, checked: true })));
+        setProgress("Reading video length…");
+        const probed = await runFrames({ data: { filename: source.filename, count: 2 } });
+        fullDuration = probed.duration;
+        if (!fullDuration) throw new Error("Could not determine this video's length.");
       }
+
+      const segments: { from: number; to: number }[] = [];
+      for (let s = 0; s < fullDuration && segments.length < MAX_SEGMENTS; s += SEGMENT) {
+        segments.push({ from: s, to: Math.min(s + SEGMENT, fullDuration) });
+      }
+
+      const merged: Moment[] = [];
+      let failures = 0;
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i]!;
+        setProgress(
+          segments.length > 1
+            ? `Watching section ${i + 1} of ${segments.length}…`
+            : "Watching for the best moments…",
+        );
+        try {
+          if (source.kind === "library" && libraryUrl) {
+            const frames = await captureTimestampedFrames(libraryUrl, 8, 560, seg.from, seg.to);
+            const { moments: found } = await runDetect({
+              data: {
+                assetId: source.asset.id,
+                duration: fullDuration,
+                focusStart: seg.from,
+                focusEnd: seg.to,
+                frames,
+                targetSeconds,
+              },
+            });
+            merged.push(...found.map((m) => ({ ...m, checked: true })));
+          } else if (source.kind === "inbox") {
+            const { frames } = await runFrames({
+              data: { filename: source.filename, count: 8, from: seg.from, to: seg.to },
+            });
+            const { moments: found } = await runDetect({
+              data: {
+                filename: source.filename,
+                duration: fullDuration,
+                focusStart: seg.from,
+                focusEnd: seg.to,
+                frames,
+                targetSeconds,
+              },
+            });
+            merged.push(...found.map((m) => ({ ...m, checked: true })));
+          }
+        } catch (e) {
+          failures++;
+          console.warn(`Section ${i + 1} skipped:`, e instanceof Error ? e.message : e);
+        }
+      }
+
+      merged.sort((a, b) => a.start - b.start);
+      const capped = merged.slice(0, 24);
+      if (capped.length === 0) {
+        throw new Error(
+          failures > 0
+            ? "The AI is busy right now — wait a minute and press Detect again."
+            : "The AI found no clear highlights. Try a video with more varied scenes.",
+        );
+      }
+      setMoments(capped);
       setPhase("idle");
       setProgress("");
-      toast.success("Highlights found — uncheck any moment to skip it.");
+      toast.success(
+        capped.length === 1
+          ? "1 highlight found."
+          : `${capped.length} highlights found${failures > 0 ? ` (${failures} section${failures === 1 ? "" : "s"} skipped)` : ""} — uncheck any to skip.`,
+      );
     } catch (err) {
       setPhase("idle");
       setProgress("");

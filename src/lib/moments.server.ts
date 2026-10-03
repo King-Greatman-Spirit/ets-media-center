@@ -36,8 +36,7 @@ export function dataUrlToBuffer(dataUrl: string): Buffer {
   return Buffer.from(match[2]!, "base64");
 }
 
-export function sanitizeMoments(raw: Moment[], duration: number, target: number): Moment[] {
-  const lo = Math.max(20, target - 30);
+export function sanitizeMoments(raw: Moment[], duration: number, target: number): Moment[] {  const lo = Math.max(20, target - 30);
   const hi = target + 30;
   const sorted = [...raw]
     .filter((m) => Number.isFinite(m.start) && Number.isFinite(m.end) && m.end > m.start)
@@ -57,11 +56,27 @@ export function sanitizeMoments(raw: Moment[], duration: number, target: number)
   return picked;
 }
 
+/**
+ * Bounds-check a single approved moment WITHOUT length filtering.
+ * Use this on the cutting path: detection already validated lengths, and
+ * re-filtering with a different ruler wrongly kills good clips.
+ */
+export function clampMoment(m: Moment, duration: number): Moment | null {
+  if (!m || !Number.isFinite(m.start) || !Number.isFinite(m.end)) return null;
+  const start = Math.max(0, Math.min(m.start, Math.max(duration - 1, 0)));
+  const end = Math.max(0.5, Math.min(m.end, Math.max(duration, 1)));
+  if (!(end > start)) return null;
+  return { ...m, start, end };
+}
+
 export async function detectVideoMoments(opts: {
   assetName: string;
   duration: number;
   targetSeconds: number;
   frames: MomentFrame[];
+  /** When set, only this window is analyzed (segmented long videos). */
+  focusStart?: number | undefined;
+  focusEnd?: number | undefined;
 }): Promise<Moment[]> {
   const models = createAIModels();
   if (models.length === 0) {
@@ -71,12 +86,17 @@ export async function detectVideoMoments(opts: {
   }
 
   const duration = opts.duration;
+  const focusLine =
+    opts.focusStart != null && opts.focusEnd != null
+      ? `Focus ONLY on the section ${fmtTime(opts.focusStart)}–${fmtTime(opts.focusEnd)}; every start/end must fall inside it.`
+      : null;
   const frameLines = opts.frames
     .map((f) => `Frame at ${fmtTime(Math.min(f.at, duration))}:`)
     .join("\n");
   const prompt = [
     `You are cutting a ${fmtTime(duration)} video titled "${opts.assetName}" into its most exciting, self-contained moments for short-form platforms (YouTube Shorts, TikTok, Reels).`,
-    `Stills from the video follow, in time order. Use them plus the title to find the highlights.`,
+    ...(focusLine ? [focusLine] : []),
+    `Stills from the video follow, in time order. Base every moment on what you can actually SEE in these frames: name a concrete visual detail (a face, gesture, crowd shot, exact on-screen words) in each summary. Never invent timestamps far from the frames you were shown.`,
     `Return 1 to 6 moments. Each moment must be ${Math.max(20, opts.targetSeconds - 30)}-${opts.targetSeconds + 30} seconds long and meaningful on its own (a complete thought, story beat, or punchline). No overlaps. If the video is shorter than ${opts.targetSeconds} seconds, return a single moment covering the whole video.`,
     `For each moment: start/end in seconds, a punchy title under 12 words, a one-line hook, and a 2-sentence summary of what happens.`,
     frameLines,
