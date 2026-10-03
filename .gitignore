@@ -44,5 +44,9 @@ docker-compose.override.yml
 ETS LOGOS/*
 !ETS LOGOS/.gitkeep
 
+# Local media inbox (big source videos stay on your machine, never committed)
+media-inbox/*
+!media-inbox/.gitkeep
+
 # package-lock
 package-lock.json

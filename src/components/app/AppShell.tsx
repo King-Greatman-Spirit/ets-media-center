@@ -29,6 +29,7 @@ import {
   PenTool,
   Image,
   Share2,
+  Clapperboard,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/hooks/useAuth"
@@ -41,6 +42,7 @@ const NAV = [
   { to: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { to: "/library", label: "Media Library", icon: FolderOpen },
   { to: "/studio", label: "AI Studio", icon: Sparkles },
+  { to: "/shorts", label: "Shorts", icon: Clapperboard },
   { to: "/calendar", label: "Calendar", icon: CalendarDays },
   { to: "/connections", label: "Connections", icon: Plug },
 ] as const
