@@ -129,7 +129,10 @@ const CutInboxInput = z.object({
     summary: z.string().max(600),
   }),
   vertical: z.boolean().default(true),
+  quality: z.enum(["fast", "best"]).default("fast"),
 });
+
+/** Cut one approved moment from an inbox file (optionally vertical 9:16). */
 
 /** Cut one approved moment from an inbox file (optionally vertical 9:16). */
 export const cutInboxClip = createServerFn({ method: "POST" })
@@ -152,6 +155,7 @@ export const cutInboxClip = createServerFn({ method: "POST" })
       index: data.index,
       moment,
       vertical: data.vertical,
+      quality: data.quality,
     });
   });
 
@@ -166,6 +170,7 @@ const CutLibraryInput = z.object({
     summary: z.string().max(600),
   }),
   vertical: z.boolean().default(false),
+  quality: z.enum(["fast", "best"]).default("fast"),
 });
 
 /** Cut one approved moment from a library video (optionally vertical 9:16). */
@@ -204,6 +209,7 @@ export const cutLibraryClip = createServerFn({ method: "POST" })
         index: data.index,
         moment,
         vertical: data.vertical,
+        quality: data.quality,
       });
     } finally {
       await rm(workdir, { recursive: true, force: true }).catch(() => {});

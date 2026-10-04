@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Clapperboard, HardDrive, Loader2, Scissors, ArrowRight, CalendarCheck, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -38,6 +38,30 @@ type Source =
   | { kind: "library"; asset: MediaAsset }
   | { kind: "inbox"; filename: string; sizeBytes: number };
 
+const MOMENTS_KEY = "ets-shorts-moments-v1";
+
+type SavedMoments = {
+  source: { kind: "library"; assetId: string } | { kind: "inbox"; filename: string };
+  moments: Moment[];
+  targetLen: string;
+  vertical: boolean;
+  quality: string;
+  tone: string;
+  platforms: string[];
+};
+
+function readSavedMoments(): SavedMoments | null {
+  try {
+    const raw = localStorage.getItem(MOMENTS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SavedMoments;
+    if (!parsed || !Array.isArray(parsed.moments)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 function fmtClock(s: number): string {
   const m = Math.floor(s / 60);
   return `${m}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -58,6 +82,7 @@ function Shorts() {
   const [inbox, setInbox] = useState<{ dir: string; videos: { name: string; sizeBytes: number; mtime: number }[] } | null>(null);
   const [targetLen, setTargetLen] = useState("60");
   const [vertical, setVertical] = useState(true);
+  const [quality, setQuality] = useState("fast");
   const [tone, setTone] = useState(TONES[0]!);
   const [platforms, setPlatforms] = useState<string[]>(["youtube_shorts", "tiktok", "instagram_reels", "x"]);
   const [moments, setMoments] = useState<Moment[] | null>(null);
@@ -65,8 +90,72 @@ function Shorts() {
   const [progress, setProgress] = useState("");
   const [clips, setClips] = useState<ClipRef[]>([]);
   const [drafts, setDrafts] = useState(0);
+  const [restored, setRestored] = useState(false);
 
   const libraryVideos = (media.data ?? []).filter((m) => m.kind === "video");
+
+  // Long cuts die with the tab: warn before leaving mid-run…
+  useEffect(() => {
+    if (phase === "idle" || phase === "done") return;
+    const guard = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [phase]);
+
+  // …and auto-save moments so a reload resumes where you left off.
+  useEffect(() => {
+    if (!moments || moments.length === 0 || !source) return;
+    try {
+      const saved: SavedMoments = {
+        source:
+          source.kind === "library"
+            ? { kind: "library", assetId: source.asset.id }
+            : { kind: "inbox", filename: source.filename },
+        moments,
+        targetLen,
+        vertical,
+        quality,
+        tone,
+        platforms,
+      };
+      localStorage.setItem(MOMENTS_KEY, JSON.stringify(saved));
+    } catch {
+      // Storage full or blocked — the run still works, just without resume.
+    }
+  }, [moments, source, targetLen, vertical, quality, tone, platforms]);
+
+  // Restore a previous moments list once the library has loaded.
+  useEffect(() => {
+    if (restored || media.isLoading || moments) return;
+    const saved = readSavedMoments();
+    if (!saved) {
+      setRestored(true);
+      return;
+    }
+    const src = saved.source;
+    if (src.kind === "library") {
+      const asset = (media.data ?? []).find((m) => m.id === src.assetId) ?? null;
+      if (!asset || asset.kind !== "video") {
+        setRestored(true);
+        return;
+      }
+      setSource({ kind: "library", asset });
+    } else {
+      setSource({ kind: "inbox", filename: src.filename, sizeBytes: 0 });
+      setLocalName(src.filename);
+    }
+    setMoments(saved.moments);
+    setTargetLen(saved.targetLen);
+    setVertical(saved.vertical);
+    setQuality(saved.quality);
+    setTone(saved.tone);
+    setPlatforms(saved.platforms);
+    setRestored(true);
+    toast.message("Restored your moments from before the reload.");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restored, media.isLoading, media.data]);
 
   function resetAfterSource(next: Source | null) {
     setSource(next);
@@ -75,6 +164,11 @@ function Shorts() {
     setDrafts(0);
     setPhase("idle");
     setProgress("");
+    try {
+      localStorage.removeItem(MOMENTS_KEY);
+    } catch {
+      // Ignore storage errors.
+    }
   }
 
   async function refreshInbox() {
@@ -238,6 +332,7 @@ function Shorts() {
               index: i,
               moment: { start: m.start, end: m.end, title: m.title, hook: m.hook, summary: m.summary },
               vertical,
+              quality: quality as "fast" | "best",
             },
           });
           made.push({ id: kept.id, name: kept.name, title: kept.title });
@@ -249,6 +344,7 @@ function Shorts() {
               index: i,
               moment: { start: m.start, end: m.end, title: m.title, hook: m.hook, summary: m.summary },
               vertical: vertical && dims.w > dims.h,
+              quality: quality as "fast" | "best",
             },
           });
           made.push({ id: kept.id, name: kept.name, title: kept.title });
@@ -405,11 +501,24 @@ function Shorts() {
                 </SelectContent>
               </Select>
             </div>
-            <label className="flex items-center gap-2 pb-2 text-sm">
-              <input type="checkbox" checked={vertical} onChange={(e) => setVertical(e.target.checked)} />
-              Vertical 9:16
-            </label>
+            <div className="space-y-2">
+              <Label>Quality</Label>
+              <Select value={quality} onValueChange={setQuality}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="fast">Fast 720p</SelectItem>
+                  <SelectItem value="best">Full 1080p</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={vertical} onChange={(e) => setVertical(e.target.checked)} />
+            Vertical 9:16
+          </label>
+          <p className="-mt-3 text-xs text-muted-foreground">
+            Vertical re-encode is the slow part — uncheck for much faster original-ratio cuts.
+          </p>
 
           <div className="space-y-2">
             <Label>Tone</Label>

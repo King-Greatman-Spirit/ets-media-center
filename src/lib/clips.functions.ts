@@ -27,6 +27,7 @@ const SplitInput = z.object({
   targetSeconds: z.number().min(20).max(120).default(60),
   // Re-encode to vertical 9:16 for Shorts/Reels/TikTok instead of keeping the original ratio.
   vertical: z.boolean().default(false),
+  quality: z.enum(["fast", "best"]).default("fast"),
 });
 
 export const splitVideo = createServerFn({ method: "POST" })
@@ -77,6 +78,7 @@ export const splitVideo = createServerFn({ method: "POST" })
               index: i,
               moment: moments[i]!,
               vertical: data.vertical,
+              quality: data.quality,
             }),
           );
         } catch (e) {

@@ -22,9 +22,15 @@ export type CutResult = {
   end: number;
 };
 
+/** 9:16 for Shorts/Reels/TikTok: fill-crop to WxH. */
+export function verticalFilter(height: 720 | 1080): string {
+  const w = height === 1080 ? 1080 : 720;
+  const h = height;
+  return `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1`;
+}
+
 /** 9:16 for Shorts/Reels/TikTok: fill-crop to 1080x1920. */
-export const VERTICAL_FILTER =
-  "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1";
+export const VERTICAL_FILTER = verticalFilter(1080);
 
 /** Resolve the bundled ffmpeg binary or throw a plain-language error. */
 export function ffmpegBinary(): string {
@@ -32,16 +38,29 @@ export function ffmpegBinary(): string {
   return ffmpegPath as string;
 }
 
-/** Read duration via `ffmpeg -i` stderr (no ffprobe binary shipped). 0 when unknown. */
-export async function probeDurationSeconds(inputPath: string): Promise<number> {
+/** Read duration/dimensions via `ffmpeg -i` stderr (no ffprobe binary shipped). */
+export async function probeMediaInfo(
+  inputPath: string,
+): Promise<{ duration: number; width: number; height: number }> {
   try {
     await execFileAsync(ffmpegBinary(), ["-i", inputPath], { timeout: 30_000 });
   } catch (e) {
     const stderr = String((e as { stderr?: unknown })?.stderr ?? "");
-    const m = /Duration:\s*(\d+):(\d+):([\d.]+)/.exec(stderr);
-    if (m) return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]!);
+    const dur = /Duration:\s*(\d+):(\d+):([\d.]+)/.exec(stderr);
+    const videoLine = stderr.split("\n").find((l) => l.includes("Video:")) ?? "";
+    const dim = /(\d{2,5})x(\d{2,5})/.exec(videoLine);
+    return {
+      duration: dur ? Number(dur[1]) * 3600 + Number(dur[2]) * 60 + Number(dur[3]!) : 0,
+      width: dim ? Number(dim[1]) : 0,
+      height: dim ? Number(dim[2]) : 0,
+    };
   }
-  return 0;
+  return { duration: 0, width: 0, height: 0 };
+}
+
+/** Read duration via `ffmpeg -i` stderr (no ffprobe binary shipped). 0 when unknown. */
+export async function probeDurationSeconds(inputPath: string): Promise<number> {
+  return (await probeMediaInfo(inputPath)).duration;
 }
 
 export async function cutUploadRegisterClip(opts: {
@@ -54,26 +73,39 @@ export async function cutUploadRegisterClip(opts: {
   moment: Moment;
   /** Re-encode to vertical 9:16 instead of fast stream copy. */
   vertical: boolean;
+  /** Vertical output size. Fast 720p is ~3x quicker and still crisp on phones. */
+  quality?: "fast" | "best";
 }): Promise<CutResult> {
   if (!ffmpegPath) throw new Error("Video tools are unavailable on the server.");
   const { supabase, userId, inputPath, baseName, index, moment, vertical } = opts;
+  const quality = opts.quality ?? "fast";
   const length = Math.round((moment.end - moment.start) * 10) / 10;
   if (!(length > 0)) throw new Error("Empty clip range.");
+
+  // Already vertical? Skip the slow re-encode entirely — stream copy instead.
+  let convert = vertical;
+  if (vertical) {
+    const info = await probeMediaInfo(inputPath);
+    if (info.width > 0 && info.height > 0 && info.height / info.width >= 1.5) {
+      convert = false;
+    }
+  }
 
   const workdir = await mkdtemp(join(tmpdir(), "ets-cut-"));
   try {
     const clipFile = join(workdir, "clip.mp4");
-    const cutArgs = vertical
+    const cutArgs = convert
       ? [
           "-y", "-ss", String(moment.start), "-i", inputPath, "-t", String(length),
-          "-vf", VERTICAL_FILTER, "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+          "-vf", verticalFilter(quality === "best" ? 1080 : 720),
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
           "-c:a", "aac", "-movflags", "+faststart", clipFile,
         ]
       : [
           "-y", "-ss", String(moment.start), "-i", inputPath, "-t", String(length),
           "-c", "copy", "-avoid_negative_ts", "make_zero", clipFile,
         ];
-    await execFileAsync(ffmpegPath as string, cutArgs, { timeout: vertical ? 600_000 : 180_000 });
+    await execFileAsync(ffmpegPath as string, cutArgs, { timeout: convert ? 600_000 : 180_000 });
     const clipStat = await stat(clipFile);
     if (clipStat.size < 1024) throw new Error("Cut produced an empty file.");
 
