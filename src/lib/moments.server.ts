@@ -17,7 +17,7 @@ export const MomentsSchema = z.object({
       }),
     )
     .min(1)
-    .max(6),
+    .max(8),
 });
 
 export type Moment = z.infer<typeof MomentsSchema>["moments"][number];
@@ -35,9 +35,11 @@ export function dataUrlToBuffer(dataUrl: string): Buffer {
   if (!match) throw new Error("Invalid frame data.");
   return Buffer.from(match[2]!, "base64");
 }
-
-export function sanitizeMoments(raw: Moment[], duration: number, target: number): Moment[] {  const lo = Math.max(20, target - 30);
-  const hi = target + 30;
+export function sanitizeMoments(raw: Moment[], duration: number, target: number): Moment[] {
+  // Wide acceptance: ±60s around target. The AI is told the range; we don't
+  // second-guess it — over-filtering is why good clips vanished.
+  const lo = Math.max(15, target - 60);
+  const hi = target + 60;
   const sorted = [...raw]
     .filter((m) => Number.isFinite(m.start) && Number.isFinite(m.end) && m.end > m.start)
     .map((m) => ({

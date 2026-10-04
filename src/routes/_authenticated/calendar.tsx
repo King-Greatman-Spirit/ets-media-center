@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, useEffect, type FormEvent } from "react";
 import { toast } from "sonner";
 import {
   addMonths,
@@ -16,9 +16,9 @@ import {
   startOfWeek,
   subMonths,
 } from "date-fns";
-import { ChevronLeft, ChevronRight, Plus, Trash2, Loader2, Send, ExternalLink } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Trash2, Loader2, Send, ExternalLink, Eye } from "lucide-react";
 import { PageHeader } from "@/components/app/AppShell";
-import { mediaQuery, postsQuery, useDeletePost, useUpsertPost, type ScheduledPost } from "@/lib/data";
+import { mediaQuery, postsQuery, useDeletePost, useUpsertPost, signedUrl, type ScheduledPost } from "@/lib/data";
 import { PLATFORMS, platformById } from "@/lib/platforms";
 import { publishPost } from "@/lib/publish.functions";
 import { Button } from "@/components/ui/button";
@@ -46,12 +46,38 @@ const STATUSES = ["draft", "scheduled", "published", "failed"] as const;
 
 function CalendarPage() {
   const posts = useQuery(postsQuery);
+  const media = useQuery(mediaQuery);
   const qc = useQueryClient();
   const runPublish = useServerFn(publishPost);
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [editing, setEditing] = useState<Partial<ScheduledPost> | null>(null);
   const [postingId, setPostingId] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ post: ScheduledPost; url: string; thumb: string | null } | null>(null);
   const del = useDeletePost();
+
+  const mediaById = useMemo(() => new Map((media.data ?? []).map((m) => [m.id, m])), [media.data]);
+
+  async function openPreview(post: ScheduledPost) {
+    const asset = post.media_asset_id ? mediaById.get(post.media_asset_id) : null;
+    if (!asset) {
+      toast.error("No media attached to this post.");
+      return;
+    }
+    try {
+      const url = await signedUrl(asset.storage_path);
+      let thumb: string | null = null;
+      if (asset.thumbnail_path) {
+        try {
+          thumb = await signedUrl(asset.thumbnail_path);
+        } catch {
+          thumb = null;
+        }
+      }
+      setPreview({ post, url, thumb });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not load preview");
+    }
+  }
 
   async function postNow(post: ScheduledPost) {
     const platform = platformById(post.platform);
@@ -190,11 +216,24 @@ function CalendarPage() {
             <ul className="space-y-2">
               {queue.map((p) => {
                 const pl = platformById(p.platform);
+                const asset = p.media_asset_id ? mediaById.get(p.media_asset_id) : null;
                 return (
                   <li key={p.id} className="group rounded-lg border border-border/60 bg-background/40 p-3">
                     <div className="flex items-center gap-2">
+                      {asset?.thumbnail_path && (
+                        <ThumbPreview assetId={asset.id} path={asset.thumbnail_path} />
+                      )}
                       <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: pl?.color }} />
                       <span className="min-w-0 flex-1 truncate text-sm font-medium">{p.title}</span>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 text-muted-foreground opacity-0 transition group-hover:opacity-100 hover:text-primary"
+                        onClick={() => openPreview(p)}
+                        aria-label="Preview"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </Button>
                       <Button
                         size="icon"
                         variant="ghost"
@@ -219,8 +258,46 @@ function CalendarPage() {
       </div>
 
       <PostDialog post={editing} onClose={() => setEditing(null)} />
+
+      {preview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setPreview(null)} />
+          <div className="relative z-10 w-full max-w-lg rounded-xl border bg-background shadow-xl">
+            <div className="flex items-center justify-between border-b p-4">
+              <h3 className="font-display text-lg font-bold">{preview.post.title}</h3>
+              <button onClick={() => setPreview(null)} className="text-muted-foreground hover:text-foreground">✕</button>
+            </div>
+            <div className="p-4">
+              {preview.thumb && (
+                <img src={preview.thumb} alt="Thumbnail" className="mb-3 w-full rounded-lg object-cover" />
+              )}
+              <video src={preview.url} controls className="max-h-[60vh] w-full rounded-lg" />
+              <p className="mt-3 whitespace-pre-wrap text-sm text-foreground/85">{preview.post.content}</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function ThumbPreview({ assetId, path }: { assetId: string; path: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    signedUrl(path)
+      .then((u) => {
+        if (live) setUrl(u);
+      })
+      .catch(() => {
+        if (live) setUrl(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [assetId, path]);
+  if (!url) return null;
+  return <img src={url} alt="" className="h-10 w-10 shrink-0 rounded object-cover" />;
 }
 
 function PostDialog({ post, onClose }: { post: Partial<ScheduledPost> | null; onClose: () => void }) {
