@@ -1,5 +1,5 @@
-import { Link, useRouterState } from "@tanstack/react-router"
-import { Fragment, useState, type ReactNode } from "react"
+﻿import { Link, useRouterState } from "@tanstack/react-router"
+import { Fragment, useEffect, useState, type ReactNode } from "react"
 import {
   LayoutDashboard,
   FolderOpen,
@@ -34,6 +34,7 @@ import {
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/hooks/useAuth"
 import { EtsWordmark, EtsCover } from "@/components/brand/Brand"
+import { UserGuide } from "@/components/app/UserGuide"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Progress } from "@/components/ui/progress"
@@ -172,13 +173,35 @@ export function AppShell({ children }: { children: ReactNode }) {
 
 function UserGuideSidebarButton() {
   const [open, setOpen] = useState(false)
+  const [seen, setSeen] = useState(() => {
+    try {
+      return localStorage.getItem("ets-guide-seen") === "1"
+    } catch {
+      return true
+    }
+  })
+
+  useEffect(() => {
+    if (seen) return
+    const t = setTimeout(() => {
+      setOpen(true)
+      try {
+        localStorage.setItem("ets-guide-seen", "1")
+      } catch {
+        // storage blocked — guide just won't auto-show next time
+      }
+      setSeen(true)
+    }, 1200)
+    return () => clearTimeout(t)
+  }, [seen])
+
   return (
     <>
       <Button variant="ghost" size="sm" onClick={() => setOpen(true)} className="w-full justify-start gap-2 text-sm text-muted-foreground hover:text-gold">
         <BookOpen className="h-4 w-4" />
         User Guide
       </Button>
-      {open && <UserGuideDialog open={open} onOpenChange={setOpen} />}
+      <UserGuide open={open} onClose={() => setOpen(false)} />
     </>
   )
 }
@@ -190,261 +213,7 @@ function UserGuideMobileButton() {
       <Button variant="ghost" size="icon" onClick={() => setOpen(true)} className="h-8 w-8" aria-label="Open User Guide" title="User Guide">
         <BookOpen className="h-4 w-4" />
       </Button>
-      {open && <UserGuideDialog open={open} onOpenChange={setOpen} />}
+      <UserGuide open={open} onClose={() => setOpen(false)} />
     </>
   )
 }
-
-function UserGuideDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  const [activeTab, setActiveTab] = useState("welcome")
-  const chapterIndex = CHAPTERS_MAP.findIndex((c) => c.id === activeTab)
-  const currentChapter = CHAPTERS_MAP.find((c) => c.id === activeTab)
-  const progress = (chapterIndex / CHAPTERS_MAP.length) * 100
-
-  const handleNext = () => {
-    const next = CHAPTERS_MAP[chapterIndex + 1]
-    if (next) {
-      setActiveTab(next.id)
-    } else {
-      onOpenChange(false)
-    }
-  }
-
-  const handlePrev = () => {
-    const prev = CHAPTERS_MAP[chapterIndex - 1]
-    if (prev) setActiveTab(prev.id)
-  }
-
-  if (!currentChapter) return null
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => onOpenChange(false)} />
-      <div className="relative z-10 w-full max-w-lg rounded-xl border bg-background shadow-xl max-h-[85vh] overflow-y-auto">
-        <div className="sticky top-0 bg-background border-b p-4 flex items-center justify-between">
-          <h3 className="font-display text-lg font-bold flex items-center gap-2">
-            <BookOpen className="h-5 w-5 text-gold" /> User Guide
-          </h3>
-          <button onClick={() => onOpenChange(false)} className="text-muted-foreground hover:text-foreground">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <Progress value={progress} className="h-1" />
-        <div className="p-4 space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-gold/10 flex items-center justify-center text-gold">
-              {currentChapter.icon}
-            </div>
-            <div>
-              <h4 className="font-semibold">{currentChapter.content.heading}</h4>
-              <p className="text-xs text-muted-foreground">{currentChapter.description}</p>
-            </div>
-          </div>
-          <ul className="space-y-2">
-            {currentChapter.content.points.map((point, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm">
-                <Circle className="h-3 w-3 text-gold mt-1 shrink-0" />
-                <span>{point}</span>
-              </li>
-            ))}
-          </ul>
-          {currentChapter.content.workflow && (
-            <div className="flex flex-wrap gap-2">
-              {currentChapter.content.workflow.map((step, i) => (
-                <Fragment key={i}>
-                  <div className="flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs">
-                    {step.icon}
-                    <span>{step.step}</span>
-                  </div>
-                  {i < currentChapter.content.workflow.length - 1 && (
-                    <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                  )}
-                </Fragment>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="sticky bottom-0 bg-background border-t p-4 flex items-center justify-between">
-          <Button variant="ghost" size="sm" onClick={handlePrev} disabled={chapterIndex === 0}>
-            <ArrowLeft className="h-4 w-4 mr-1" /> Previous
-          </Button>
-          <div className="flex gap-1">
-            {CHAPTERS_MAP.map((_, i) => (
-              <div key={i} className={`h-1.5 w-1.5 rounded-full cursor-pointer ${i === chapterIndex ? 'bg-gold' : 'bg-muted-foreground/30'}`} onClick={() => { const dot = CHAPTERS_MAP[i]; if (dot) setActiveTab(dot.id) }} />
-            ))}
-          </div>
-          <Button size="sm" onClick={handleNext}>
-            {chapterIndex === CHAPTERS_MAP.length - 1 ? 'Done ✨' : 'Next'}
-          </Button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ============================================================
-// GUIDE DATA (inline to avoid import issues)
-// ============================================================
-
-const CHAPTERS_MAP = [
-  {
-    id: "welcome", title: "Welcome", icon: <Crown className="h-5 w-5" />,
-    description: "The ETS workflow at a glance.",
-    content: {
-      heading: "How It Works",
-      points: [
-        "📤 Upload videos, images, or audio to the Media Library",
-        "⚡ The AI analyzes content and creates platform posts",
-        "📅 Posts are scheduled across platforms automatically",
-        "🔗 Connect social media accounts to publish",
-        "📊 Track performance with built-in analytics",
-      ],
-      workflow: [
-        { step: "Upload", icon: <Upload className="h-4 w-4" /> },
-        { step: "AI Creates", icon: <Sparkles className="h-4 w-4" /> },
-        { step: "Route", icon: <Share2 className="h-4 w-4" /> },
-        { step: "Schedule", icon: <CalendarDays className="h-4 w-4" /> },
-        { step: "Connect & Publish", icon: <Plug className="h-4 w-4" /> },
-      ],
-    },
-  },
-  {
-    id: "navigation", title: "Navigation", icon: <Eye className="h-5 w-5" />,
-    description: "Identify every icon and where it takes you.",
-    content: {
-      heading: "Sidebar Navigation",
-      points: [
-        "📊 Dashboard — Overview stats, agent status, upcoming posts",
-        "📁 Media Library — Upload and manage all files",
-        "⚡ AI Studio — Generate platform-specific content",
-        "🎬 Shorts Pipeline — Create short-form video clips",
-        "📅 Calendar — View and schedule all posts",
-        "🔗 Connections — Link social media accounts",
-      ],
-      workflow: [
-        { step: "Dashboard", icon: <LayoutDashboard className="h-4 w-4" /> },
-        { step: "Library", icon: <FolderOpen className="h-4 w-4" /> },
-        { step: "Studio", icon: <Sparkles className="h-4 w-4" /> },
-        { step: "Calendar", icon: <CalendarDays className="h-4 w-4" /> },
-        { step: "Connections", icon: <Plug className="h-4 w-4" /> },
-      ],
-    },
-  },
-  {
-    id: "media", title: "Media Library", icon: <FolderOpen className="h-5 w-5" />,
-    description: "Upload, organize, and prepare your content.",
-    content: {
-      heading: "Managing Your Media",
-      points: [
-        "Bulk drag-and-drop upload for videos, images, and audio",
-        "File filters and search to find specific content quickly",
-        "Preview and delete controls for each file",
-        "Mark videos as Long-form for proper categorization",
-        "Open Split view to separate segments",
-      ],
-      workflow: [
-        { step: "Upload", icon: <Upload className="h-4 w-4" /> },
-        { step: "Filter", icon: <Target className="h-4 w-4" /> },
-        { step: "Preview", icon: <Eye className="h-4 w-4" /> },
-        { step: "Long-form", icon: <Video className="h-4 w-4" /> },
-        { step: "Split", icon: <Settings className="h-4 w-4" /> },
-      ],
-    },
-  },
-  {
-    id: "shorts", title: "Shorts Pipeline", icon: <Video className="h-5 w-5" />,
-    description: "Create short-form content from longer videos.",
-    content: {
-      heading: "Shorts Pipeline Steps",
-      points: [
-        "Select source video from your library",
-        "Review auto-generated transcript and notes",
-        "Set manual timestamps for key moments",
-        "AI extracts highlights with titles, hooks, and themes",
-        "Choose target channels (YouTube Shorts, TikTok, Reels)",
-        "Preview both routes side by side",
-        "Send finalized clips to the Calendar",
-      ],
-      workflow: [
-        { step: "Source", icon: <Video className="h-4 w-4" /> },
-        { step: "Transcript", icon: <BookMarked className="h-4 w-4" /> },
-        { step: "Timestamps", icon: <Clock className="h-4 w-4" /> },
-        { step: "AI Extract", icon: <Sparkles className="h-4 w-4" /> },
-        { step: "Titles/Hooks", icon: <PenTool className="h-4 w-4" /> },
-        { step: "Channels", icon: <Share2 className="h-4 w-4" /> },
-        { step: "Send", icon: <Send className="h-4 w-4" /> },
-      ],
-    },
-  },
-  {
-    id: "studio", title: "AI Studio", icon: <Sparkles className="h-5 w-5" />,
-    description: "Generate platform-optimized content with AI.",
-    content: {
-      heading: "AI Studio Workflow",
-      points: [
-        "Enter your core idea or message",
-        "Choose a tone (Bold & prophetic, Teaching, etc.)",
-        "Optionally attach media from your library",
-        "Select target channels for each post",
-        "Click Generate to create content",
-        "Copy text or Schedule directly",
-        "Autonomy level controls how much AI does",
-      ],
-      workflow: [
-        { step: "Idea", icon: <PenTool className="h-4 w-4" /> },
-        { step: "Tone", icon: <Settings className="h-4 w-4" /> },
-        { step: "Media", icon: <Image className="h-4 w-4" /> },
-        { step: "Channels", icon: <Share2 className="h-4 w-4" /> },
-        { step: "Generate", icon: <Zap className="h-4 w-4" /> },
-        { step: "Copy & Schedule", icon: <Send className="h-4 w-4" /> },
-      ],
-    },
-  },
-  {
-    id: "calendar", title: "Calendar", icon: <CalendarDays className="h-5 w-5" />,
-    description: "Schedule, manage, and publish all posts.",
-    content: {
-      heading: "Calendar Management",
-      points: [
-        "Navigate months with arrow buttons",
-        "Click any date to see all scheduled posts",
-        "Click 'New Post' to create a schedule manually",
-        "Edit fields: date, time, platform, pillar",
-        "View the queue of pending posts",
-        "Edit or delete any scheduled post",
-        "Posts follow the 3-per-day rhythm: 6AM, 12PM, 6PM",
-      ],
-      workflow: [
-        { step: "Navigate", icon: <CalendarDays className="h-4 w-4" /> },
-        { step: "Click Date", icon: <Eye className="h-4 w-4" /> },
-        { step: "New Post", icon: <Upload className="h-4 w-4" /> },
-        { step: "Edit", icon: <PenTool className="h-4 w-4" /> },
-        { step: "Queue", icon: <Target className="h-4 w-4" /> },
-        { step: "Delete", icon: <Settings className="h-4 w-4" /> },
-      ],
-    },
-  },
-  {
-    id: "connections", title: "Connections", icon: <Plug className="h-5 w-5" />,
-    description: "Connect your social media accounts.",
-    content: {
-      heading: "Connecting Platforms",
-      points: [
-        "Click Connect on each platform to link it",
-        "Enter API keys from the provider's documentation",
-        "All credentials are encrypted before saving",
-        "Green badge means connected, red means not linked",
-        "Click Update to change keys or status",
-        "Disconnect to remove a platform link",
-      ],
-      workflow: [
-        { step: "Connect", icon: <Share2 className="h-4 w-4" /> },
-        { step: "Get Keys", icon: <Key className="h-4 w-4" /> },
-        { step: "Enter Credentials", icon: <Settings className="h-4 w-4" /> },
-        { step: "Save Encrypted", icon: <Shield className="h-4 w-4" /> },
-        { step: "Status", icon: <Eye className="h-4 w-4" /> },
-        { step: "Disconnect", icon: <X className="h-4 w-4" /> },
-      ],
-    },
-  },
-]
