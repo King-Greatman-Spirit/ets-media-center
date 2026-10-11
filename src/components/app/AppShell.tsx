@@ -34,7 +34,7 @@ import {
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/hooks/useAuth"
 import { EtsWordmark, EtsCover } from "@/components/brand/Brand"
-import { UserGuide } from "@/components/app/UserGuide"
+import { Tour, TourButton } from "@/components/app/Tour"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Progress } from "@/components/ui/progress"
@@ -175,7 +175,7 @@ function UserGuideSidebarButton() {
   const [open, setOpen] = useState(false)
   const [seen, setSeen] = useState(() => {
     try {
-      return localStorage.getItem("ets-guide-seen") === "1"
+      return localStorage.getItem("ets-tour-done-v1") === "1"
     } catch {
       return true
     }
@@ -186,22 +186,19 @@ function UserGuideSidebarButton() {
     const t = setTimeout(() => {
       setOpen(true)
       try {
-        localStorage.setItem("ets-guide-seen", "1")
+        localStorage.setItem("ets-tour-done-v1", "1")
       } catch {
-        // storage blocked — guide just won't auto-show next time
+        // storage blocked
       }
       setSeen(true)
-    }, 1200)
+    }, 1500)
     return () => clearTimeout(t)
   }, [seen])
 
   return (
     <>
-      <Button variant="ghost" size="sm" onClick={() => setOpen(true)} className="w-full justify-start gap-2 text-sm text-muted-foreground hover:text-gold">
-        <BookOpen className="h-4 w-4" />
-        User Guide
-      </Button>
-      <UserGuide open={open} onClose={() => setOpen(false)} />
+      <TourButton />
+      {open && <TourLauncher onDone={() => setOpen(false)} />}
     </>
   )
 }
@@ -210,10 +207,14 @@ function UserGuideMobileButton() {
   const [open, setOpen] = useState(false)
   return (
     <>
-      <Button variant="ghost" size="icon" onClick={() => setOpen(true)} className="h-8 w-8" aria-label="Open User Guide" title="User Guide">
+      <Button variant="ghost" size="icon" onClick={() => setOpen(true)} className="h-8 w-8" aria-label="Open Tour" title="Tour">
         <BookOpen className="h-4 w-4" />
       </Button>
-      <UserGuide open={open} onClose={() => setOpen(false)} />
+      {open && <TourLauncher onDone={() => setOpen(false)} />}
     </>
   )
+}
+
+function TourLauncher({ onDone }: { onDone: () => void }) {
+  return <Tour />
 }
