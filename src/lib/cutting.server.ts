@@ -63,6 +63,17 @@ export async function probeDurationSeconds(inputPath: string): Promise<number> {
   return (await probeMediaInfo(inputPath)).duration;
 }
 
+/** Stage a logo from a base64 data URL to a temp PNG for ffmpeg overlay. */
+export async function stageLogo(dataUrl: string): Promise<{ path: string; cleanup: () => Promise<void> }> {
+  const match = /^data:image\/(png|jpeg|jpg);base64,(.*)$/s.exec(dataUrl);
+  if (!match) throw new Error("Logo must be a PNG or JPG image.");
+  const workdir = await mkdtemp(join(tmpdir(), "ets-logo-"));
+  const ext = match[1] === "png" ? "png" : "jpg";
+  const path = join(workdir, `logo.${ext}`);
+  await writeFile(path, Buffer.from(match[2]!, "base64"));
+  return { path, cleanup: () => rm(workdir, { recursive: true, force: true }).catch(() => {}) };
+}
+
 export async function cutUploadRegisterClip(opts: {
   supabase: SupabaseClient<Database>;
   userId: string;
@@ -75,6 +86,16 @@ export async function cutUploadRegisterClip(opts: {
   vertical: boolean;
   /** Vertical output size. Fast 720p is ~3x quicker and still crisp on phones. */
   quality?: "fast" | "best";
+  /** Watermark text filter (ffmpeg drawtext). null to skip. */
+  watermarkText?: string | null;
+  /** Watermark text position. */
+  watermarkPosition?: string | null;
+  /** Local path of logo image for overlay. null to skip. */
+  logoPath?: string | null;
+  /** Logo position on the clip. */
+  logoPosition?: "left" | "middle" | "right" | "none";
+  /** Watermark text position. */
+  textPosition?: string;
 }): Promise<CutResult> {
   if (!ffmpegPath) throw new Error("Video tools are unavailable on the server.");
   const { supabase, userId, inputPath, baseName, index, moment, vertical } = opts;
@@ -94,17 +115,43 @@ export async function cutUploadRegisterClip(opts: {
   const workdir = await mkdtemp(join(tmpdir(), "ets-cut-"));
   try {
     const clipFile = join(workdir, "clip.mp4");
+    const filters: string[] = [];
+
+    // Build watermark text filter
+    if (opts.watermarkText?.trim()) {
+      const fontSize = 32;
+      const margin = 24;
+      const pos = opts.textPosition ?? "bottom-right";
+      const x = pos.includes("right") ? `w-text_w-${margin}` : pos.includes("left") ? `${margin}` : `(w-text_w)/2`;
+      const y = pos.includes("bottom") ? `h-text_h-${margin}` : pos.includes("top") ? `${margin}` : `(h-text_h)/2`;
+      const escaped = opts.watermarkText.replace(/'/g, "\\'").replace(/:/g, "\\:");
+      filters.push(`drawtext=text='${escaped}':fontsize=${fontSize}:fontcolor=white@0.6:x=${x}:y=${y}:shadowcolor=black@0.5:shadowx=2:shadowy=2`);
+    }
+
     const cutArgs = convert
       ? [
           "-y", "-ss", String(moment.start), "-i", inputPath, "-t", String(length),
-          "-vf", verticalFilter(quality === "best" ? 1080 : 720),
+          "-vf", [...filters, verticalFilter(quality === "best" ? 1080 : 720)].filter(Boolean).join(","),
           "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
           "-c:a", "aac", "-movflags", "+faststart", clipFile,
         ]
       : [
           "-y", "-ss", String(moment.start), "-i", inputPath, "-t", String(length),
+          ...(filters.length ? ["-vf", filters.join(",")] : []),
           "-c", "copy", "-avoid_negative_ts", "make_zero", clipFile,
         ];
+    // Logo overlay (after cutting, before final output)
+    if (opts.logoPath && opts.logoPosition && opts.logoPosition !== "none") {
+      const x = opts.logoPosition === "left" ? "20" : opts.logoPosition === "right" ? "W-w-20" : "(W-w)/2";
+      const y = opts.logoPosition === "left" || opts.logoPosition === "right" ? "20" : "H-h-20";
+      const overlayArgs = convert
+        ? ["-y", "-i", clipFile, "-i", opts.logoPath, "-filter_complex", `overlay=${x}:${y}`, "-c:a", "copy", clipFile + ".tmp.mp4"]
+        : ["-y", "-i", clipFile, "-i", opts.logoPath, "-filter_complex", `overlay=${x}:${y}`, "-c:a", "copy", clipFile + ".tmp.mp4"];
+      await execFileAsync(ffmpegPath as string, overlayArgs, { timeout: 120_000 });
+      const { rename } = await import("node:fs/promises");
+      await rename(clipFile + ".tmp.mp4", clipFile);
+    }
+
     await execFileAsync(ffmpegPath as string, cutArgs, { timeout: convert ? 600_000 : 180_000 });
     const clipStat = await stat(clipFile);
     if (clipStat.size < 1024) throw new Error("Cut produced an empty file.");

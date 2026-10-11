@@ -33,8 +33,10 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/hooks/useAuth"
+import { toast } from "sonner"
 import { EtsWordmark, EtsCover } from "@/components/brand/Brand"
 import { Tour, TourButton } from "@/components/app/Tour"
+import { WatermarkDialog, loadWatermarkSettings, saveWatermarkSettings, type WatermarkSettings } from "@/components/app/WatermarkDialog"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Progress } from "@/components/ui/progress"
@@ -180,6 +182,8 @@ function UserGuideSidebarButton() {
       return true
     }
   })
+  const [wmOpen, setWmOpen] = useState(false)
+  const [wmSettings, setWmSettings] = useState<WatermarkSettings>(() => loadWatermarkSettings())
 
   useEffect(() => {
     if (seen) return
@@ -198,6 +202,25 @@ function UserGuideSidebarButton() {
   return (
     <>
       <TourButton />
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setWmOpen(true)}
+        className="w-full justify-start gap-2 text-sm text-muted-foreground hover:text-gold"
+      >
+        <span className="text-base leading-none">™</span>
+        Watermark
+      </Button>
+      <WatermarkDialog
+        open={wmOpen}
+        onClose={() => setWmOpen(false)}
+        settings={wmSettings}
+        onSave={(s) => {
+          setWmSettings(s)
+          saveWatermarkSettings(s)
+          toast.success("Watermark saved — applies to all new clips.")
+        }}
+      />
       {open && <TourLauncher onDone={() => setOpen(false)} />}
     </>
   )

@@ -12,6 +12,7 @@ import { PlatformChip } from "@/components/app/PlatformBadge";
 import { repurposeContent } from "@/lib/ai.functions";
 import { listInbox, detectMoments, cutInboxClip, cutLibraryClip, extractFrames } from "@/lib/batch.functions";
 import { captureTimestampedFrames, probeVideoMeta } from "@/lib/video-frames";
+import { loadWatermarkSettings } from "@/components/app/WatermarkDialog";
 import { formatBytes } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -91,6 +92,7 @@ function Shorts() {
   const [clips, setClips] = useState<ClipRef[]>([]);
   const [drafts, setDrafts] = useState(0);
   const [restored, setRestored] = useState(false);
+  const watermark = loadWatermarkSettings();
 
   const libraryVideos = (media.data ?? []).filter((m) => m.kind === "video");
 
@@ -333,6 +335,10 @@ function Shorts() {
               moment: { start: m.start, end: m.end, title: m.title, hook: m.hook, summary: m.summary },
               vertical,
               quality: quality as "fast" | "best",
+              watermarkText: watermark.text || undefined,
+              watermarkPosition: watermark.position,
+              logoDataUrl: watermark.logoDataUrl || undefined,
+              logoPosition: watermark.logoPosition,
             },
           });
           made.push({ id: kept.id, name: kept.name, title: kept.title });
@@ -345,6 +351,10 @@ function Shorts() {
               moment: { start: m.start, end: m.end, title: m.title, hook: m.hook, summary: m.summary },
               vertical: vertical && dims.w > dims.h,
               quality: quality as "fast" | "best",
+              watermarkText: watermark.text || undefined,
+              watermarkPosition: watermark.position,
+              logoDataUrl: watermark.logoDataUrl || undefined,
+              logoPosition: watermark.logoPosition,
             },
           });
           made.push({ id: kept.id, name: kept.name, title: kept.title });

@@ -5,7 +5,7 @@ import { basename, join, resolve } from "node:path";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { serverEnv } from "@/lib/server-env";
 import { detectVideoMoments, clampMoment } from "@/lib/moments.server";
-import { cutUploadRegisterClip } from "@/lib/cutting.server";
+import { cutUploadRegisterClip, stageLogo } from "@/lib/cutting.server";
 
 // Batch pipeline for big local videos: the drop folder lives on the same
 // machine as the server, so gigabyte files never travel through the browser.
@@ -130,9 +130,11 @@ const CutInboxInput = z.object({
   }),
   vertical: z.boolean().default(true),
   quality: z.enum(["fast", "best"]).default("fast"),
+  watermarkText: z.string().max(100).optional(),
+  watermarkPosition: z.string().default("bottom-right"),
+  logoDataUrl: z.string().max(500000).optional(),
+  logoPosition: z.enum(["left", "middle", "right", "none"]).default("none"),
 });
-
-/** Cut one approved moment from an inbox file (optionally vertical 9:16). */
 
 /** Cut one approved moment from an inbox file (optionally vertical 9:16). */
 export const cutInboxClip = createServerFn({ method: "POST" })
@@ -143,19 +145,20 @@ export const cutInboxClip = createServerFn({ method: "POST" })
     const full = safeJoin(dir, data.filename);
     const st = await stat(full).catch(() => null);
     if (!st?.isFile()) throw new Error("File not found in the inbox folder.");
-    // Bounds-check only: detection already validated lengths.
     const moment = clampMoment(data.moment, 3 * 3600);
     if (!moment) throw new Error("Invalid clip range.");
     const baseName = basename(data.filename).replace(/\.[a-z0-9]+$/i, "");
-    return cutUploadRegisterClip({
-      supabase: context.supabase,
-      userId: context.userId,
+    return cutWithBranding(context, {
       inputPath: full,
       baseName,
       index: data.index,
       moment,
       vertical: data.vertical,
       quality: data.quality,
+      watermarkText: data.watermarkText ?? undefined,
+      watermarkPosition: data.watermarkPosition ?? "bottom-right",
+      logoDataUrl: data.logoDataUrl ?? undefined,
+      logoPosition: data.logoPosition ?? "none",
     });
   });
 
@@ -171,6 +174,10 @@ const CutLibraryInput = z.object({
   }),
   vertical: z.boolean().default(false),
   quality: z.enum(["fast", "best"]).default("fast"),
+  watermarkText: z.string().max(100).optional(),
+  watermarkPosition: z.string().default("bottom-right"),
+  logoDataUrl: z.string().max(500000).optional(),
+  logoPosition: z.enum(["left", "middle", "right", "none"]).default("none"),
 });
 
 /** Cut one approved moment from a library video (optionally vertical 9:16). */
@@ -186,7 +193,6 @@ export const cutLibraryClip = createServerFn({ method: "POST" })
     if (assetError) throw new Error(assetError.message);
     if (!asset) throw new Error("Video not found.");
     if (asset.kind !== "video") throw new Error("Only videos can be split.");
-    // Bounds-check only: detection already validated lengths.
     const moment = clampMoment(data.moment, 3 * 3600);
     if (!moment) throw new Error("Invalid clip range.");
 
@@ -201,20 +207,65 @@ export const cutLibraryClip = createServerFn({ method: "POST" })
       if (dlError || !blob) throw new Error(dlError?.message ?? "Could not download this video.");
       const inputPath = join(workdir, "input.mp4");
       await writeFile(inputPath, Buffer.from(await blob.arrayBuffer()));
-      return cutUploadRegisterClip({
-        supabase: context.supabase,
-        userId: asset.user_id,
+      return cutWithBranding(context, {
         inputPath,
         baseName: asset.name.replace(/\.[a-z0-9]+$/i, ""),
         index: data.index,
         moment,
         vertical: data.vertical,
         quality: data.quality,
+        watermarkText: data.watermarkText ?? undefined,
+        watermarkPosition: data.watermarkPosition ?? "bottom-right",
+        logoDataUrl: data.logoDataUrl ?? undefined,
+        logoPosition: data.logoPosition ?? "none",
       });
     } finally {
       await rm(workdir, { recursive: true, force: true }).catch(() => {});
     }
   });
+
+/** Shared cut + brand + upload + register. Handles logo staging and cleanup. */
+async function cutWithBranding(
+  context: { supabase: import("@supabase/supabase-js").SupabaseClient<import("@/integrations/supabase/types").Database>; userId: string },
+  opts: {
+    inputPath: string;
+    baseName: string;
+    index: number;
+    moment: import("@/lib/moments.server").Moment;
+    vertical: boolean;
+    quality: "fast" | "best";
+    watermarkText?: string | undefined;
+    watermarkPosition?: string | undefined;
+    logoDataUrl?: string | undefined;
+    logoPosition?: "left" | "middle" | "right" | "none" | undefined;
+  },
+) {
+  let logoPath: string | null = null;
+  let logoCleanup: (() => Promise<void>) | null = null;
+  try {
+    if (opts.logoDataUrl && opts.logoPosition && opts.logoPosition !== "none") {
+      const staged = await stageLogo(opts.logoDataUrl);
+      logoPath = staged.path;
+      logoCleanup = staged.cleanup;
+    }
+    return await cutUploadRegisterClip({
+      supabase: context.supabase,
+      userId: context.userId,
+      inputPath: opts.inputPath,
+      baseName: opts.baseName,
+      index: opts.index,
+      moment: opts.moment,
+      vertical: opts.vertical,
+      quality: opts.quality,
+      watermarkText: opts.watermarkText ?? null,
+      watermarkPosition: opts.watermarkPosition ?? "bottom-right",
+      logoPath,
+      logoPosition: opts.logoPosition ?? "none",
+    });
+  } finally {
+    if (logoCleanup) await logoCleanup();
+  }
+}
 
 const FramesInput = z.object({
   filename: z.string().min(1).max(200),
