@@ -125,7 +125,7 @@ export async function cutUploadRegisterClip(opts: {
       const x = pos.includes("right") ? `w-text_w-${margin}` : pos.includes("left") ? `${margin}` : `(w-text_w)/2`;
       const y = pos.includes("bottom") ? `h-text_h-${margin}` : pos.includes("top") ? `${margin}` : `(h-text_h)/2`;
       const escaped = opts.watermarkText.replace(/'/g, "\\'").replace(/:/g, "\\:");
-      filters.push(`drawtext=text='${escaped}':fontsize=${fontSize}:fontcolor=white@0.6:x=${x}:y=${y}:shadowcolor=black@0.5:shadowx=2:shadowy=2`);
+      filters.push(`drawtext=fontfile='C\\:/Windows/Fonts/arial.ttf':text='${escaped}':fontsize=${fontSize}:fontcolor=white@0.6:x=${x}:y=${y}:shadowcolor=black@0.5:shadowx=2:shadowy=2`);
     }
 
     const cutArgs = convert
