@@ -14,6 +14,27 @@ import type { Moment } from "@/lib/moments.server";
 
 const execFileAsync = promisify(execFile);
 
+/** Run ffmpeg: full output goes to the server log, callers get a short message. */
+async function runFfmpeg(args: string[], timeoutMs: number, label: string): Promise<void> {
+  try {
+    await execFileAsync(ffmpegBinary(), args, { timeout: timeoutMs });
+  } catch (e) {
+    const stderr = String((e as { stderr?: unknown })?.stderr ?? (e instanceof Error ? e.message : e));
+    console.error(`[ffmpeg:${label}]`, stderr.slice(-2000));
+    const first = stderr
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("ffmpeg version") && !l.startsWith("  "))
+      .slice(-1)[0];
+    const hint = /No such file/i.test(stderr)
+      ? "a source file went missing"
+      : /Invalid data found|could not find codec|invalid/i.test(stderr)
+        ? "the video data could not be read"
+        : "video processing failed";
+    throw new Error(`Clip ${label} failed: ${hint}${first ? ` (${first.slice(0, 160)})` : ""}.`);
+  }
+}
+
 export type CutResult = {
   id: string;
   name: string;
@@ -104,6 +125,8 @@ export async function cutUploadRegisterClip(opts: {
   if (!(length > 0)) throw new Error("Empty clip range.");
 
   // Already vertical? Skip the slow re-encode entirely — stream copy instead.
+  // NOTE: any pixel filter (watermark text/logo) forces a re-encode; filters
+  // and stream-copy are mutually exclusive in ffmpeg.
   let convert = vertical;
   if (vertical) {
     const info = await probeMediaInfo(inputPath);
@@ -111,6 +134,9 @@ export async function cutUploadRegisterClip(opts: {
       convert = false;
     }
   }
+
+  const start = moment.start;
+  if (!Number.isFinite(start) || start < 0) throw new Error("Invalid clip start time.");
 
   const workdir = await mkdtemp(join(tmpdir(), "ets-cut-"));
   try {
@@ -125,34 +151,49 @@ export async function cutUploadRegisterClip(opts: {
       const x = pos.includes("right") ? `w-text_w-${margin}` : pos.includes("left") ? `${margin}` : `(w-text_w)/2`;
       const y = pos.includes("bottom") ? `h-text_h-${margin}` : pos.includes("top") ? `${margin}` : `(h-text_h)/2`;
       const escaped = opts.watermarkText.replace(/'/g, "\\'").replace(/:/g, "\\:");
-      filters.push(`drawtext=fontfile='C\\:/Windows/Fonts/arial.ttf':text='${escaped}':fontsize=${fontSize}:fontcolor=white@0.6:x=${x}:y=${y}:shadowcolor=black@0.5:shadowx=2:shadowy=2`);
+      filters.push(`drawtext=text='${escaped}':fontsize=${fontSize}:fontcolor=white@0.6:x=${x}:y=${y}:shadowcolor=black@0.5:shadowx=2:shadowy=2`);
+    }
+
+    // Pixel filters and stream-copy are mutually exclusive: burning a
+    // watermark forces a re-encode even when the ratio is untouched.
+    if (filters.length > 0) convert = true;
+
+    // Fail fast with a precise message instead of ffmpeg's confusion.
+    try {
+      const st = await stat(inputPath);
+      if (st.size < 1024) throw new Error("Source video file is empty.");
+    } catch (e) {
+      if (e instanceof Error && e.message === "Source video file is empty.") throw e;
+      throw new Error("Source video file is missing.");
     }
 
     const cutArgs = convert
       ? [
-          "-y", "-ss", String(moment.start), "-i", inputPath, "-t", String(length),
+          "-y", "-ss", String(start), "-i", inputPath, "-t", String(length),
           "-vf", [...filters, verticalFilter(quality === "best" ? 1080 : 720)].filter(Boolean).join(","),
           "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
           "-c:a", "aac", "-movflags", "+faststart", clipFile,
         ]
       : [
-          "-y", "-ss", String(moment.start), "-i", inputPath, "-t", String(length),
-          ...(filters.length ? ["-vf", filters.join(",")] : []),
+          "-y", "-ss", String(start), "-i", inputPath, "-t", String(length),
           "-c", "copy", "-avoid_negative_ts", "make_zero", clipFile,
         ];
-    // Logo overlay (after cutting, before final output)
+    await runFfmpeg(cutArgs, convert ? 600_000 : 180_000, "cut");
+    // Logo overlay (after cutting — it reads clipFile).
     if (opts.logoPath && opts.logoPosition && opts.logoPosition !== "none") {
       const x = opts.logoPosition === "left" ? "20" : opts.logoPosition === "right" ? "W-w-20" : "(W-w)/2";
       const y = opts.logoPosition === "left" || opts.logoPosition === "right" ? "20" : "H-h-20";
-      const overlayArgs = convert
-        ? ["-y", "-i", clipFile, "-i", opts.logoPath, "-filter_complex", `overlay=${x}:${y}`, "-c:a", "copy", clipFile + ".tmp.mp4"]
-        : ["-y", "-i", clipFile, "-i", opts.logoPath, "-filter_complex", `overlay=${x}:${y}`, "-c:a", "copy", clipFile + ".tmp.mp4"];
-      await execFileAsync(ffmpegPath as string, overlayArgs, { timeout: 120_000 });
+      const overlayArgs = [
+        "-y", "-i", clipFile, "-i", opts.logoPath,
+        "-filter_complex", `[1:v]scale=160:-1[logo];[0:v][logo]overlay=${x}:${y}:shortest=1`,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac",
+        clipFile + ".tmp.mp4",
+      ];
+      await runFfmpeg(overlayArgs, 300_000, "logo");
       const { rename } = await import("node:fs/promises");
       await rename(clipFile + ".tmp.mp4", clipFile);
     }
 
-    await execFileAsync(ffmpegPath as string, cutArgs, { timeout: convert ? 600_000 : 180_000 });
     const clipStat = await stat(clipFile);
     if (clipStat.size < 1024) throw new Error("Cut produced an empty file.");
 
