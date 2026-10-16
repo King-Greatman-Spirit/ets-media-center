@@ -223,44 +223,39 @@ export function WatermarkDialog({
             </div>
           </div>
 
-          {/* Logo position — tap where it should sit */}
-          {logoPreview && (
-            <div className="space-y-2">
-              <Label>Logo position — tap a square</Label>
-              <div className="grid grid-cols-3 gap-2">
-                {NINE_POSITIONS.map((pos) => (
-                  <button
-                    key={pos}
-                    type="button"
-                    onClick={() => setLocal((s) => ({ ...s, logoPosition: pos }))}
-                    className={cn(
-                      "rounded-lg border px-2 py-1.5 text-xs capitalize transition",
-                      local.logoPosition === pos
-                        ? "border-primary bg-accent text-primary"
-                        : "border-border text-muted-foreground hover:border-primary/50",
-                    )}
-                  >
-                    {pos.replace("-", " ")}
-                  </button>
-                ))}
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="w-full text-muted-foreground"
-                onClick={() => setLocal((s) => ({ ...s, logoPosition: "none" }))}
-              >
-                No logo on clips
-              </Button>
-            </div>
-          )}
+          {/* Logo position — always visible so you know where it will land */}
+          <div className="space-y-2">
+            <Label htmlFor="logo-position">Logo position</Label>
+            <Select
+              value={local.logoPosition}
+              onValueChange={(v) => setLocal((s) => ({ ...s, logoPosition: v as WatermarkSettings["logoPosition"] }))}
+            >
+              <SelectTrigger id="logo-position"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="top-left">Top left</SelectItem>
+                <SelectItem value="top-center">Top center</SelectItem>
+                <SelectItem value="top-right">Top right</SelectItem>
+                <SelectItem value="middle-left">Middle left</SelectItem>
+                <SelectItem value="middle-center">Middle center</SelectItem>
+                <SelectItem value="middle-right">Middle right</SelectItem>
+                <SelectItem value="bottom-left">Bottom left</SelectItem>
+                <SelectItem value="bottom-center">Bottom center</SelectItem>
+                <SelectItem value="bottom-right">Bottom right</SelectItem>
+                <SelectItem value="none">Off — no logo</SelectItem>
+              </SelectContent>
+            </Select>
+            {!logoPreview && (
+              <p className="text-xs text-muted-foreground">
+                Upload a logo above to activate this spot. Text watermark is unaffected.
+              </p>
+            )}
+          </div>
 
           {/* Preview hint */}
           <div className="rounded-lg border border-border/60 bg-background/40 p-3 text-xs text-muted-foreground">
             <strong className="text-foreground/80">Preview:</strong> "{local.text || "…"}" will appear{" "}
             {local.position.replace("-", " ")} of every clip at {local.opacity}% opacity
-            {logoPreview && local.logoPosition !== "none" && `, with your logo at ${local.logoPosition}`}.
+            {local.logoPosition !== "none" && `, with your logo at ${local.logoPosition.replace("-", " ")}${logoPreview ? "" : " (upload one to activate)"}`}.
           </div>
 
           <div className="flex justify-end gap-2">
