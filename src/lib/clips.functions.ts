@@ -61,6 +61,11 @@ export const splitVideo = createServerFn({ method: "POST" })
         .from("media")
         .download(asset.storage_path);
       if (dlError || !blob) throw new Error(dlError?.message ?? "Could not download this video.");
+      if (blob.size < 1024) {
+        throw new Error(
+          `"${asset.name}" downloaded empty — its file is missing from storage. Delete that row and re-upload the video.`,
+        );
+      }
       const inputPath = join(workdir, "input.mp4");
       await writeFile(inputPath, Buffer.from(await blob.arrayBuffer()));
 
@@ -133,6 +138,11 @@ export const brandClip = createServerFn({ method: "POST" })
         .from("media")
         .download(asset.storage_path);
       if (dlError || !blob) throw new Error(dlError?.message ?? "Could not download this video.");
+      if (blob.size < 1024) {
+        throw new Error(
+          `"${asset.name}" downloaded empty — its file is missing from storage. Delete that row and re-upload the video.`,
+        );
+      }
       const inputPath = join(workdir, "input.mp4");
       await writeFile(inputPath, Buffer.from(await blob.arrayBuffer()));
       const outFile = join(workdir, "branded.mp4");
