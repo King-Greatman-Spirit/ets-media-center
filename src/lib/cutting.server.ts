@@ -113,8 +113,12 @@ export async function cutUploadRegisterClip(opts: {
   watermarkPosition?: string | null;
   /** Local path of logo image for overlay. null to skip. */
   logoPath?: string | null;
-  /** Logo position on the clip. */
-  logoPosition?: "left" | "middle" | "right" | "none";
+  /** Logo position on the clip (9-grid). */
+  logoPosition?:
+    | "top-left" | "top-center" | "top-right"
+    | "middle-left" | "middle-center" | "middle-right"
+    | "bottom-left" | "bottom-center" | "bottom-right"
+    | "none";
   /** Watermark text position. */
   textPosition?: string;
 }): Promise<CutResult> {
@@ -181,8 +185,9 @@ export async function cutUploadRegisterClip(opts: {
     await runFfmpeg(cutArgs, convert ? 600_000 : 180_000, "cut");
     // Logo overlay (after cutting — it reads clipFile).
     if (opts.logoPath && opts.logoPosition && opts.logoPosition !== "none") {
-      const x = opts.logoPosition === "left" ? "20" : opts.logoPosition === "right" ? "W-w-20" : "(W-w)/2";
-      const y = opts.logoPosition === "left" || opts.logoPosition === "right" ? "20" : "H-h-20";
+      const [vAlign, hAlign] = opts.logoPosition.split("-") as ["top" | "middle" | "bottom", "left" | "center" | "right"];
+      const x = hAlign === "left" ? "20" : hAlign === "right" ? "W-w-20" : "(W-w)/2";
+      const y = vAlign === "top" ? "20" : vAlign === "bottom" ? "H-h-20" : "(H-h)/2";
       const overlayArgs = [
         "-y", "-i", clipFile, "-i", opts.logoPath,
         "-filter_complex", `[1:v]scale=160:-1[logo];[0:v][logo]overlay=${x}:${y}:shortest=1`,

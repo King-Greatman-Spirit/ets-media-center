@@ -133,7 +133,7 @@ const CutInboxInput = z.object({
   watermarkText: z.string().max(100).optional(),
   watermarkPosition: z.string().default("bottom-right"),
   logoDataUrl: z.string().max(500000).optional(),
-  logoPosition: z.enum(["left", "middle", "right", "none"]).default("none"),
+  logoPosition: z.enum(["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right", "none"]).default("none"),
 });
 
 /** Cut one approved moment from an inbox file (optionally vertical 9:16). */
@@ -177,7 +177,7 @@ const CutLibraryInput = z.object({
   watermarkText: z.string().max(100).optional(),
   watermarkPosition: z.string().default("bottom-right"),
   logoDataUrl: z.string().max(500000).optional(),
-  logoPosition: z.enum(["left", "middle", "right", "none"]).default("none"),
+  logoPosition: z.enum(["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right", "none"]).default("none"),
 });
 
 /** Cut one approved moment from a library video (optionally vertical 9:16). */
@@ -237,7 +237,7 @@ async function cutWithBranding(
     watermarkText?: string | undefined;
     watermarkPosition?: string | undefined;
     logoDataUrl?: string | undefined;
-    logoPosition?: "left" | "middle" | "right" | "none" | undefined;
+    logoPosition?: "top-left" | "top-center" | "top-right" | "middle-left" | "middle-center" | "middle-right" | "bottom-left" | "bottom-center" | "bottom-right" | "none" | undefined;
   },
 ) {
   let logoPath: string | null = null;

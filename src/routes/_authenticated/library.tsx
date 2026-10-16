@@ -4,18 +4,21 @@ import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { UploadCloud, Film, Image as ImageIcon, Music, Trash2, Search, Loader2, Eye, ScanSearch, Scissors } from "lucide-react";
+import { UploadCloud, Film, Image as ImageIcon, Music, Trash2, Search, Loader2, Eye, ScanSearch, Scissors, ImagePlus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/app/AppShell";
 import { mediaQuery, kindFromMime, formatBytes, signedUrl, type MediaAsset } from "@/lib/data";
 import { analyzeMedia } from "@/lib/media.functions";
+import { makeThumbnail } from "@/lib/thumb.functions";
 import { splitVideo } from "@/lib/clips.functions";
 import { captureVideoFrames, captureTimestampedFrames, probeVideoMeta } from "@/lib/video-frames";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/library")({
@@ -111,6 +114,7 @@ function Library() {
   const qc = useQueryClient();
   const media = useQuery(mediaQuery);
   const analyze = useServerFn(analyzeMedia);
+  const makeCover = useServerFn(makeThumbnail);
   const split = useServerFn(splitVideo);
   const [dragging, setDragging] = useState(false);
   const [uploads, setUploads] = useState<Upload[]>([]);
@@ -119,6 +123,36 @@ function Library() {
   const [preview, setPreview] = useState<{ asset: MediaAsset; url: string } | null>(null);
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const [splittingId, setSplittingId] = useState<string | null>(null);
+  const [covering, setCovering] = useState(false);
+  const [cover, setCover] = useState<{ asset: MediaAsset; headline: string; subline: string; style: "gold" | "white" } | null>(null);
+
+  function coverDefaults(asset: MediaAsset): { headline: string; subline: string } {
+    const m = /^Clip:\s*(.+?)\.\s*Hook:\s*(.+)$/s.exec(asset.analysis_text ?? "");
+    if (m) return { headline: m[1]!.slice(0, 80), subline: m[2]!.slice(0, 80) };
+    return { headline: asset.name.replace(/\.[a-z0-9]+$/i, "").slice(0, 80), subline: "" };
+  }
+
+  async function generateCover() {
+    if (!cover) return;
+    setCovering(true);
+    try {
+      await makeCover({
+        data: {
+          assetId: cover.asset.id,
+          headline: cover.headline.trim() || cover.asset.name,
+          subline: cover.subline.trim() || undefined,
+          style: cover.style,
+        },
+      });
+      await qc.invalidateQueries({ queryKey: ["media"] });
+      setCover(null);
+      toast.success("Catchy cover saved to this clip.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Cover render failed");
+    } finally {
+      setCovering(false);
+    }
+  }
   const [analysis, setAnalysis] = useState<{ name: string; summary: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -433,6 +467,17 @@ function Library() {
                         >
                           {analyzingId === m.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <ScanSearch className="h-3 w-3" />}
                         </Button>
+                        {m.kind === "video" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setCover({ asset: m, ...coverDefaults(m), style: "gold" })}
+                            aria-label={`Make catchy cover for ${m.name}`}
+                            title="Make a catchy cover with bold hook text"
+                          >
+                            <ImagePlus className="h-3 w-3" />
+                          </Button>
+                        )}
                         <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => remove(m)} aria-label="Delete">
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -459,6 +504,53 @@ function Library() {
           <DialogHeader><DialogTitle className="font-display">What the AI saw — {analysis?.name}</DialogTitle></DialogHeader>
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/85">{analysis?.summary}</p>
           <p className="text-xs text-muted-foreground">Saved to this file. Attach it in the AI Studio and the posts will come from this content.</p>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!cover} onOpenChange={(o) => !o && setCover(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle className="font-display">Catchy cover — {cover?.asset.name}</DialogTitle></DialogHeader>
+          {cover && (
+            <div className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Big bold hook text over a punched-up frame — built to earn the click.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="cover-headline">Headline</Label>
+                <Input
+                  id="cover-headline"
+                  value={cover.headline}
+                  maxLength={80}
+                  onChange={(e) => setCover({ ...cover, headline: e.target.value })}
+                  placeholder="HEAVEN ANSWERED DAY ONE"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cover-subline">Subline (optional)</Label>
+                <Input
+                  id="cover-subline"
+                  value={cover.subline}
+                  maxLength={80}
+                  onChange={(e) => setCover({ ...cover, subline: e.target.value })}
+                  placeholder="The delay is a battlefield"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Style</Label>
+                <Select value={cover.style} onValueChange={(v) => setCover({ ...cover, style: v as "gold" | "white" })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gold">Gold on dark (CTR classic)</SelectItem>
+                    <SelectItem value="white">Bold white</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button onClick={generateCover} disabled={covering} className="w-full bg-gold-gradient font-semibold text-primary-foreground hover:opacity-90">
+                {covering ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ImagePlus className="mr-2 h-4 w-4" />}
+                {covering ? "Painting cover…" : "Make cover"}
+              </Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

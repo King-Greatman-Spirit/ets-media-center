@@ -8,10 +8,21 @@ import { Upload, Type, Image, Trash2, Check } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
+export type NinePosition =
+  | "top-left" | "top-center" | "top-right"
+  | "middle-left" | "middle-center" | "middle-right"
+  | "bottom-left" | "bottom-center" | "bottom-right";
+
+export const NINE_POSITIONS: NinePosition[] = [
+  "top-left", "top-center", "top-right",
+  "middle-left", "middle-center", "middle-right",
+  "bottom-left", "bottom-center", "bottom-right",
+];
+
 export type WatermarkSettings = {
   text: string;
-  position: "bottom-right" | "bottom-left" | "top-right" | "top-left" | "center";
-  logoPosition: "left" | "right" | "middle" | "none";
+  position: NinePosition | "center";
+  logoPosition: NinePosition | "none";
   logoDataUrl: string | null;
   opacity: number;
   size: "small" | "medium" | "large";
@@ -19,7 +30,7 @@ export type WatermarkSettings = {
 const DEFAULT_SETTINGS: WatermarkSettings = {
   text: "End Time Soldiers",
   position: "bottom-right",
-  logoPosition: "left",
+  logoPosition: "top-right",
   logoDataUrl: null,
   opacity: 60,
   size: "medium",
@@ -65,8 +76,9 @@ export function buildWatermarkFilters(
   const textFilter = buildTextFilter(settings);
   if (textFilter) filters.push(textFilter);
   if (logoPath && settings.logoPosition !== "none") {
-    const x = settings.logoPosition === "left" ? "20" : settings.logoPosition === "right" ? "W-w-20" : "(W-w)/2";
-    const y = settings.logoPosition === "left" || settings.logoPosition === "right" ? "20" : "H-h-20";
+    const [vAlign, hAlign] = (settings.logoPosition as NinePosition).split("-");
+    const x = hAlign === "left" ? "20" : hAlign === "right" ? "W-w-20" : "(W-w)/2";
+    const y = vAlign === "top" ? "20" : vAlign === "bottom" ? "H-h-20" : "(H-h)/2";
     filters.push(`overlay=${x}:${y}`);
   }
   return filters;
@@ -130,10 +142,11 @@ export function WatermarkDialog({
           </div>
 
           {/* Position */}
+          {/* Position — tap where it should sit */}
           <div className="space-y-2">
-            <Label>Text position</Label>
+            <Label>Text position — tap a square</Label>
             <div className="grid grid-cols-3 gap-2">
-              {(["top-left", "top-right", "center", "bottom-left", "bottom-right"] as const).map((pos) => (
+              {NINE_POSITIONS.map((pos) => (
                 <button
                   key={pos}
                   type="button"
@@ -210,12 +223,12 @@ export function WatermarkDialog({
             </div>
           </div>
 
-          {/* Logo position */}
+          {/* Logo position — tap where it should sit */}
           {logoPreview && (
             <div className="space-y-2">
-              <Label>Logo position</Label>
-              <div className="grid grid-cols-4 gap-2">
-                {(["left", "middle", "right", "none"] as const).map((pos) => (
+              <Label>Logo position — tap a square</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {NINE_POSITIONS.map((pos) => (
                   <button
                     key={pos}
                     type="button"
@@ -227,10 +240,19 @@ export function WatermarkDialog({
                         : "border-border text-muted-foreground hover:border-primary/50",
                     )}
                   >
-                    {pos === "none" ? "Off" : pos}
+                    {pos.replace("-", " ")}
                   </button>
                 ))}
               </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-full text-muted-foreground"
+                onClick={() => setLocal((s) => ({ ...s, logoPosition: "none" }))}
+              >
+                No logo on clips
+              </Button>
             </div>
           )}
 
