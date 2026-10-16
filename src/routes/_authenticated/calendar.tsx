@@ -332,10 +332,10 @@ function PostDialog({ post, onClose }: { post: Partial<ScheduledPost> | null; on
 
   return (
     <Dialog open={!!post} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg w-[calc(100vw-2rem)] overflow-hidden">
         <DialogHeader><DialogTitle className="font-display">{post?.id ? "Edit post" : "Schedule a post"}</DialogTitle></DialogHeader>
         {post && (
-          <form onSubmit={submit} className="space-y-4">
+          <form onSubmit={submit} className="min-w-0 space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="title">Title</Label>
               <Input id="title" name="title" defaultValue={post.title ?? ""} required />
@@ -371,7 +371,7 @@ function PostDialog({ post, onClose }: { post: Partial<ScheduledPost> | null; on
             <div className="space-y-1.5">
               <Label htmlFor="media">Media</Label>
               <Select name="media" defaultValue={post.media_asset_id ?? "none"}>
-                <SelectTrigger id="media"><SelectValue /></SelectTrigger>
+                <SelectTrigger id="media" className="w-full min-w-0 [&>span]:block [&>span]:truncate"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">No media</SelectItem>
                   {(media.data ?? []).map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}

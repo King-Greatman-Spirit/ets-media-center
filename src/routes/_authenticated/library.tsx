@@ -4,12 +4,14 @@ import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { UploadCloud, Film, Image as ImageIcon, Music, Trash2, Search, Loader2, Eye, ScanSearch, Scissors, ImagePlus } from "lucide-react";
+import { UploadCloud, Film, Image as ImageIcon, Music, Trash2, Search, Loader2, Eye, ScanSearch, Scissors, ImagePlus, Stamp } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/app/AppShell";
 import { mediaQuery, kindFromMime, formatBytes, signedUrl, type MediaAsset } from "@/lib/data";
 import { analyzeMedia } from "@/lib/media.functions";
+import { brandClip } from "@/lib/clips.functions";
 import { makeThumbnail } from "@/lib/thumb.functions";
+import { loadWatermarkSettings } from "@/components/app/WatermarkDialog";
 import { splitVideo } from "@/lib/clips.functions";
 import { captureVideoFrames, captureTimestampedFrames, probeVideoMeta } from "@/lib/video-frames";
 import { Button } from "@/components/ui/button";
@@ -115,6 +117,8 @@ function Library() {
   const media = useQuery(mediaQuery);
   const analyze = useServerFn(analyzeMedia);
   const makeCover = useServerFn(makeThumbnail);
+  const brand = useServerFn(brandClip);
+  const [brandingId, setBrandingId] = useState<string | null>(null);
   const split = useServerFn(splitVideo);
   const [dragging, setDragging] = useState(false);
   const [uploads, setUploads] = useState<Upload[]>([]);
@@ -263,6 +267,33 @@ function Library() {
     },
     [qc],
   );
+
+  async function brandAsset(asset: MediaAsset) {
+    const wm = loadWatermarkSettings();
+    if (!wm.text.trim() && (!wm.logoDataUrl || wm.logoPosition === "none")) {
+      toast.error("Set your watermark text or logo first (sidebar → Watermark).");
+      return;
+    }
+    setBrandingId(asset.id);
+    try {
+      toast.message("Branding your clip — re-rendering with watermark…");
+      await brand({
+        data: {
+          assetId: asset.id,
+          watermarkText: wm.text.trim() || undefined,
+          watermarkPosition: wm.position,
+          logoDataUrl: wm.logoDataUrl || undefined,
+          logoPosition: wm.logoPosition,
+        },
+      });
+      await qc.invalidateQueries({ queryKey: ["media"] });
+      toast.success("Watermark burned in. Preview the clip to see it.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Branding failed");
+    } finally {
+      setBrandingId(null);
+    }
+  }
 
   async function remove(asset: MediaAsset) {
     await supabase.storage.from("media").remove([asset.storage_path]);
@@ -476,6 +507,18 @@ function Library() {
                             title="Make a catchy cover with bold hook text"
                           >
                             <ImagePlus className="h-3 w-3" />
+                          </Button>
+                        )}
+                        {m.kind === "video" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => brandAsset(m)}
+                            disabled={brandingId === m.id}
+                            aria-label={`Burn watermark onto ${m.name}`}
+                            title="Burn your watermark + logo onto this clip"
+                          >
+                            {brandingId === m.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Stamp className="h-3 w-3" />}
                           </Button>
                         )}
                         <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => remove(m)} aria-label="Delete">

@@ -15,7 +15,7 @@ import type { Moment } from "@/lib/moments.server";
 const execFileAsync = promisify(execFile);
 
 /** Run ffmpeg: full output goes to the server log, callers get a short message. */
-async function runFfmpeg(args: string[], timeoutMs: number, label: string): Promise<void> {
+export async function runFfmpeg(args: string[], timeoutMs: number, label: string): Promise<void> {
   try {
     await execFileAsync(ffmpegBinary(), args, { timeout: timeoutMs });
   } catch (e) {

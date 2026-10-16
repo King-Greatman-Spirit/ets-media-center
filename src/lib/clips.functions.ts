@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { detectVideoMoments } from "@/lib/moments.server";
-import { cutUploadRegisterClip } from "@/lib/cutting.server";
+import { cutUploadRegisterClip, runFfmpeg, stageLogo } from "@/lib/cutting.server";
 
 const MAX_VIDEO_BYTES = 500_000_000;
 const MAX_VIDEO_SECONDS = 20 * 60;
@@ -87,6 +87,98 @@ export const splitVideo = createServerFn({ method: "POST" })
       }
       return { clips };
     } finally {
+      await rm(workdir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+const BrandInput = z.object({
+  assetId: z.string().uuid(),
+  watermarkText: z.string().max(100).optional(),
+  watermarkPosition: z.string().default("bottom-right"),
+  logoDataUrl: z.string().max(500000).optional(),
+  logoPosition: z
+    .enum(["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right", "none"])
+    .default("none"),
+});
+
+/**
+ * Burn the current watermark + logo onto an EXISTING clip in place.
+ * For clips cut before branding existed — re-encodes the file, same path.
+ */
+export const brandClip = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => BrandInput.parse(input))
+  .handler(async ({ data, context }) => {
+    const hasText = !!data.watermarkText?.trim();
+    const hasLogo = !!data.logoDataUrl && data.logoPosition !== "none";
+    if (!hasText && !hasLogo) {
+      throw new Error("Set your watermark text or logo first (sidebar → Watermark).");
+    }
+    const { data: asset, error: assetError } = await context.supabase
+      .from("media_assets")
+      .select("id, user_id, name, kind, storage_path")
+      .eq("id", data.assetId)
+      .maybeSingle();
+    if (assetError) throw new Error(assetError.message);
+    if (!asset) throw new Error("Video not found.");
+    if (asset.kind !== "video") throw new Error("Only videos can be branded.");
+
+    const { mkdtemp, rm, writeFile, readFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const workdir = await mkdtemp(join(tmpdir(), "ets-brand-"));
+    let logoCleanup: (() => Promise<void>) | null = null;
+    try {
+      const { data: blob, error: dlError } = await context.supabase.storage
+        .from("media")
+        .download(asset.storage_path);
+      if (dlError || !blob) throw new Error(dlError?.message ?? "Could not download this video.");
+      const inputPath = join(workdir, "input.mp4");
+      await writeFile(inputPath, Buffer.from(await blob.arrayBuffer()));
+      const outFile = join(workdir, "branded.mp4");
+
+      const filters: string[] = [];
+      if (hasText) {
+        const margin = 24;
+        const pos = data.watermarkPosition;
+        const x = pos.includes("right") ? `w-text_w-${margin}` : pos.includes("left") ? `${margin}` : `(w-text_w)/2`;
+        const y = pos.includes("bottom") ? `h-text_h-${margin}` : pos.includes("top") ? `${margin}` : `(h-text_h)/2`;
+        const escaped = data.watermarkText!.replace(/'/g, "\\'").replace(/:/g, "\\:");
+        filters.push(`drawtext=text='${escaped}':fontsize=32:fontcolor=white@0.6:x=${x}:y=${y}:shadowcolor=black@0.5:shadowx=2:shadowy=2`);
+      }
+
+      if (hasLogo) {
+        const staged = await stageLogo(data.logoDataUrl!);
+        logoCleanup = staged.cleanup;
+        const [vAlign, hAlign] = data.logoPosition.split("-") as ["top" | "middle" | "bottom", "left" | "center" | "right"];
+        const x = hAlign === "left" ? "20" : hAlign === "right" ? "W-w-20" : "(W-w)/2";
+        const y = vAlign === "top" ? "20" : vAlign === "bottom" ? "H-h-20" : "(H-h)/2";
+        const vf = filters.length > 0 ? [...filters, "format=yuv420p"] : [];
+        const fc = vf.length > 0
+          ? `[0:v]${vf.join(",")},format=yuv420p[v];[v][1:v]scale=160:-1[logo];[v][logo]overlay=${x}:${y}:shortest=1`
+          : `[0:v]format=yuv420p[v];[v][1:v]scale=160:-1[logo];[v][logo]overlay=${x}:${y}:shortest=1`;
+        await runFfmpeg(
+          ["-y", "-i", inputPath, "-i", staged.path, "-filter_complex", fc,
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart", outFile],
+          600_000,
+          "brand",
+        );
+      } else {
+        await runFfmpeg(
+          ["-y", "-i", inputPath, "-vf", filters.join(","), "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart", outFile],
+          600_000,
+          "brand",
+        );
+      }
+
+      const branded = await readFile(outFile);
+      const { error: upError } = await context.supabase.storage
+        .from("media")
+        .upload(asset.storage_path, branded, { contentType: "video/mp4", upsert: true });
+      if (upError) throw new Error(upError.message);
+      return { ok: true };
+    } finally {
+      if (logoCleanup) await logoCleanup();
       await rm(workdir, { recursive: true, force: true }).catch(() => {});
     }
   });
