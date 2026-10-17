@@ -214,3 +214,57 @@ export const brandClip = createServerFn({ method: "POST" })
       await rm(workdir, { recursive: true, force: true }).catch(() => {});
     }
   });
+
+const RegenThumbInput = z.object({ assetId: z.string().uuid() });
+
+export const regenerateThumbnail = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => RegenThumbInput.parse(input))
+  .handler(async ({ data, context }) => {
+    const { data: asset, error: assetError } = await context.supabase
+      .from("media_assets")
+      .select("id, user_id, kind, storage_path")
+      .eq("id", data.assetId)
+      .maybeSingle();
+    if (assetError) throw new Error(assetError.message);
+    if (!asset) throw new Error("Video not found.");
+    if (asset.kind !== "video") throw new Error("Only videos can have thumbnails.");
+
+    const { mkdtemp, rm, writeFile, readFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const workdir = await mkdtemp(join(tmpdir(), "ets-regen-"));
+    try {
+      const { data: blob, error: dlError } = await context.supabase.storage
+        .from("media")
+        .download(asset.storage_path);
+      if (dlError || !blob) throw new Error(dlError?.message ?? "Could not download this video.");
+      if (blob.size < 1024) throw new Error("Video file is empty or missing from storage.");
+
+      const inputPath = join(workdir, "input.mp4");
+      await writeFile(inputPath, Buffer.from(await blob.arrayBuffer()));
+
+      const thumbFile = join(workdir, "thumb.jpg");
+      await execFileAsync(
+        ffmpegPath as string,
+        ["-y", "-ss", "2", "-i", inputPath, "-frames:v", "1", "-q:v", "4", thumbFile],
+        { timeout: 60_000 },
+      );
+      const thumbBytes = await readFile(thumbFile);
+      const thumbPath = `${asset.user_id}/thumbs/${crypto.randomUUID()}.jpg`;
+      const { error: thumbUpError } = await context.supabase.storage
+        .from("media")
+        .upload(thumbPath, thumbBytes, { contentType: "image/jpeg", upsert: true });
+      if (thumbUpError) throw new Error(thumbUpError.message);
+
+      const { error: updateError } = await context.supabase
+        .from("media_assets")
+        .update({ thumbnail_path: thumbPath })
+        .eq("id", asset.id);
+      if (updateError) throw new Error(updateError.message);
+
+      return { ok: true };
+    } finally {
+      await rm(workdir, { recursive: true, force: true }).catch(() => {});
+    }
+  });

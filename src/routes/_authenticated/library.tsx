@@ -9,7 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/app/AppShell";
 import { mediaQuery, kindFromMime, formatBytes, signedUrl, type MediaAsset } from "@/lib/data";
 import { analyzeMedia } from "@/lib/media.functions";
-import { brandClip } from "@/lib/clips.functions";
+import { brandClip, regenerateThumbnail } from "@/lib/clips.functions";
 import { makeThumbnail } from "@/lib/thumb.functions";
 import { loadWatermarkSettings } from "@/components/app/WatermarkDialog";
 import { splitVideo } from "@/lib/clips.functions";
@@ -127,6 +127,7 @@ function Library() {
   const [preview, setPreview] = useState<{ asset: MediaAsset; url: string } | null>(null);
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const [splittingId, setSplittingId] = useState<string | null>(null);
+  const [regenThumbId, setRegenThumbId] = useState<string | null>(null);
   const [covering, setCovering] = useState(false);
   const [cover, setCover] = useState<{ asset: MediaAsset; headline: string; subline: string; style: "gold" | "white" } | null>(null);
 
@@ -292,6 +293,19 @@ function Library() {
       toast.error(e instanceof Error ? e.message : "Branding failed");
     } finally {
       setBrandingId(null);
+    }
+  }
+
+  async function regenThumb(asset: MediaAsset) {
+    setRegenThumbId(asset.id);
+    try {
+      await regenerateThumbnail({ data: { assetId: asset.id } });
+      await qc.invalidateQueries({ queryKey: ["media"] });
+      toast.success("Thumbnail regenerated.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not regenerate thumbnail");
+    } finally {
+      setRegenThumbId(null);
     }
   }
 
@@ -519,6 +533,18 @@ function Library() {
                             title="Burn your watermark + logo onto this clip"
                           >
                             {brandingId === m.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Stamp className="h-3 w-3" />}
+                          </Button>
+                        )}
+                        {m.kind === "video" && !m.thumbnail_path && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => regenThumb(m)}
+                            disabled={regenThumbId === m.id}
+                            aria-label={`Regenerate thumbnail for ${m.name}`}
+                            title="Regenerate thumbnail"
+                          >
+                            {regenThumbId === m.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <ImageIcon className="h-3 w-3" />}
                           </Button>
                         )}
                         <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => remove(m)} aria-label="Delete">
