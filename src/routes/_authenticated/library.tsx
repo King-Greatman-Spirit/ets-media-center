@@ -124,7 +124,7 @@ function Library() {
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [filter, setFilter] = useState<"all" | "video" | "image" | "audio">("all");
   const [search, setSearch] = useState("");
-  const [preview, setPreview] = useState<{ asset: MediaAsset; url: string } | null>(null);
+  const [preview, setPreview] = useState<{ asset: MediaAsset; url: string; thumbUrl?: string } | null>(null);
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const [splittingId, setSplittingId] = useState<string | null>(null);
   const [regenThumbId, setRegenThumbId] = useState<string | null>(null);
@@ -322,7 +322,11 @@ function Library() {
 
   async function open(asset: MediaAsset) {
     try {
-      setPreview({ asset, url: await signedUrl(asset.storage_path) });
+      const [url, thumbUrl] = await Promise.all([
+        signedUrl(asset.storage_path),
+        asset.thumbnail_path ? signedUrl(asset.thumbnail_path) : Promise.resolve(undefined),
+      ]);
+      setPreview({ asset, url, thumbUrl: thumbUrl ?? undefined });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not open file");
     }
@@ -562,7 +566,12 @@ function Library() {
       <Dialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)}>
         <DialogContent className="max-w-3xl">
           <DialogHeader><DialogTitle className="font-display">{preview?.asset.name}</DialogTitle></DialogHeader>
-          {preview && preview.asset.kind === "video" && <video src={preview.url} controls className="max-h-[70vh] w-full rounded-lg" />}
+          {preview && preview.asset.kind === "video" && (
+            <div className="space-y-3">
+              {preview.asset.thumbnail_path && <img src={preview.thumbUrl} alt={preview.asset.name} className="max-h-[40vh] w-full rounded-lg object-cover" />}
+              <video src={preview.url} controls className="max-h-[50vh] w-full rounded-lg" />
+            </div>
+          )}
           {preview && preview.asset.kind === "image" && <img src={preview.url} alt={preview.asset.name} className="max-h-[70vh] w-full rounded-lg object-contain" />}
           {preview && preview.asset.kind === "audio" && <audio src={preview.url} controls className="w-full" />}
         </DialogContent>

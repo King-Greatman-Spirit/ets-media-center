@@ -169,7 +169,7 @@ export const brandClip = createServerFn({ method: "POST" })
           : `[0:v]format=yuv420p[v];[1:v]scale=160:-1[logo];[v][logo]overlay=${x}:${y}:shortest=1`;
         await runFfmpeg(
           ["-y", "-i", inputPath, "-i", staged.path, "-filter_complex", fc,
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart", outFile],
+            "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart", outFile],
           600_000,
           "brand",
         );
