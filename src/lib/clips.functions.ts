@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { detectVideoMoments } from "@/lib/moments.server";
-import { cutUploadRegisterClip, runFfmpeg, stageLogo } from "@/lib/cutting.server";
+import { cutUploadRegisterClip, runFfmpeg, stageLogo, execFileAsync, ffmpegPath } from "@/lib/cutting.server";
 
 const MAX_VIDEO_BYTES = 500_000_000;
 const MAX_VIDEO_SECONDS = 20 * 60;
@@ -165,8 +165,8 @@ export const brandClip = createServerFn({ method: "POST" })
         const y = vAlign === "top" ? "20" : vAlign === "bottom" ? "H-h-20" : "(H-h)/2";
         const vf = filters.length > 0 ? [...filters, "format=yuv420p"] : [];
         const fc = vf.length > 0
-          ? `[0:v]${vf.join(",")},format=yuv420p[v];[v][1:v]scale=160:-1[logo];[v][logo]overlay=${x}:${y}:shortest=1`
-          : `[0:v]format=yuv420p[v];[v][1:v]scale=160:-1[logo];[v][logo]overlay=${x}:${y}:shortest=1`;
+          ? `[0:v]${vf.join(",")},format=yuv420p[v];[1:v]scale=160:-1[logo];[v][logo]overlay=${x}:${y}:shortest=1`
+          : `[0:v]format=yuv420p[v];[1:v]scale=160:-1[logo];[v][logo]overlay=${x}:${y}:shortest=1`;
         await runFfmpeg(
           ["-y", "-i", inputPath, "-i", staged.path, "-filter_complex", fc,
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart", outFile],
@@ -186,6 +186,28 @@ export const brandClip = createServerFn({ method: "POST" })
         .from("media")
         .upload(asset.storage_path, branded, { contentType: "video/mp4", upsert: true });
       if (upError) throw new Error(upError.message);
+
+      try {
+        const thumbFile = join(workdir, "thumb.jpg");
+        await execFileAsync(
+          ffmpegPath as string,
+          ["-y", "-ss", "2", "-i", outFile, "-frames:v", "1", "-q:v", "4", thumbFile],
+          { timeout: 60_000 },
+        );
+        const { readFile: readFs } = await import("node:fs/promises");
+        const thumbBytes = await readFs(thumbFile);
+        const thumbPath = `${asset.user_id}/thumbs/${crypto.randomUUID()}.jpg`;
+        const { error: thumbUpError } = await context.supabase.storage
+          .from("media")
+          .upload(thumbPath, thumbBytes, { contentType: "image/jpeg", upsert: true });
+        if (!thumbUpError) {
+          await context.supabase
+            .from("media_assets")
+            .update({ thumbnail_path: thumbPath })
+            .eq("id", asset.id);
+        }
+      } catch {}
+
       return { ok: true };
     } finally {
       if (logoCleanup) await logoCleanup();

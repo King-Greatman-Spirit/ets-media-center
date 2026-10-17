@@ -12,7 +12,8 @@ import type { Moment } from "@/lib/moments.server";
 // Server-only. Each clip is cut with ffmpeg, thumbnailed, uploaded to the
 // `media` bucket, and registered as its own media_assets row.
 
-const execFileAsync = promisify(execFile);
+export const execFileAsync = promisify(execFile);
+export { ffmpegPath };
 
 /** Run ffmpeg: full output goes to the server log, callers get a short message. */
 export async function runFfmpeg(args: string[], timeoutMs: number, label: string): Promise<void> {
@@ -24,7 +25,7 @@ export async function runFfmpeg(args: string[], timeoutMs: number, label: string
     const first = stderr
       .split("\n")
       .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith("ffmpeg version") && !l.startsWith("  "))
+      .filter((l) => l && !l.startsWith("ffmpeg version") && !l.startsWith("  ") && !l.startsWith("Fontconfig error"))
       .slice(-1)[0];
     const hint = /No such file/i.test(stderr)
       ? "a source file went missing"
