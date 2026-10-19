@@ -490,7 +490,7 @@ function Library() {
                       {m.analysis_text && (
                         <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-muted-foreground">{m.analysis_text}</p>
                       )}
-                      <div className="mt-3 flex gap-2 opacity-0 transition group-hover:opacity-100">
+                      <div className="mt-3 flex gap-2">
                         <Button size="sm" variant="outline" className="flex-1" onClick={() => open(m)}>
                           <Eye className="mr-1 h-3 w-3" /> Preview
                         </Button>
