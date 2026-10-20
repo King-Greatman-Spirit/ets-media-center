@@ -165,11 +165,11 @@ export const brandClip = createServerFn({ method: "POST" })
         const y = vAlign === "top" ? "20" : vAlign === "bottom" ? "H-h-20" : "(H-h)/2";
         const vf = filters.length > 0 ? [...filters, "format=yuv420p"] : [];
         const fc = vf.length > 0
-          ? `[0:v]${vf.join(",")},format=yuv420p[v];[1:v]scale=160:-1[logo];[v][logo]overlay=${x}:${y}:shortest=1`
-          : `[0:v]format=yuv420p[v];[1:v]scale=160:-1[logo];[v][logo]overlay=${x}:${y}:shortest=1`;
+          ? `[0:v]${vf.join(",")},format=yuv420p[v];[1:v]scale=160:-1[logo];[v][logo]overlay=${x}:${y}:shortest=1[outv]`
+          : `[0:v]format=yuv420p[v];[1:v]scale=160:-1[logo];[v][logo]overlay=${x}:${y}:shortest=1[outv]`;
         await runFfmpeg(
           ["-y", "-i", inputPath, "-i", staged.path, "-filter_complex", fc,
-            "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart", outFile],
+            "-map", "[outv]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart", outFile],
           600_000,
           "brand",
         );
@@ -267,4 +267,43 @@ export const regenerateThumbnail = createServerFn({ method: "POST" })
     } finally {
       await rm(workdir, { recursive: true, force: true }).catch(() => {});
     }
+  });
+
+const SetThumbInput = z.object({
+  assetId: z.string().uuid(),
+  imageDataUrl: z.string().max(20_000_000),
+});
+
+export const setThumbnailImage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => SetThumbInput.parse(input))
+  .handler(async ({ data, context }) => {
+    const { data: asset, error: assetError } = await context.supabase
+      .from("media_assets")
+      .select("id, user_id, storage_path")
+      .eq("id", data.assetId)
+      .maybeSingle();
+    if (assetError) throw new Error(assetError.message);
+    if (!asset) throw new Error("Video not found.");
+
+    const match = /^data:image\/(png|jpe?g|webp);base64,(.*)$/s.exec(data.imageDataUrl);
+    if (!match) throw new Error("Choose a PNG, JPG or WEBP image.");
+    const mime = match[1] === "jpg" ? "jpeg" : match[1] === "webp" ? "webp" : match[1];
+    const bytes = Buffer.from(match[2]!, "base64");
+    if (bytes.length < 100) throw new Error("That image looks empty.");
+    if (bytes.length > 20_000_000) throw new Error("That image is too large (max 20 MB).");
+
+    const thumbPath = `${asset.user_id}/thumbs/${crypto.randomUUID()}.${mime === "jpeg" ? "jpg" : mime}`;
+    const { error: upError } = await context.supabase.storage
+      .from("media")
+      .upload(thumbPath, bytes, { contentType: `image/${mime}`, upsert: true });
+    if (upError) throw new Error(upError.message);
+
+    const { error: rowError } = await context.supabase
+      .from("media_assets")
+      .update({ thumbnail_path: thumbPath })
+      .eq("id", asset.id);
+    if (rowError) throw new Error(rowError.message);
+
+    return { thumbnailPath: thumbPath };
   });

@@ -22,14 +22,15 @@ export async function runFfmpeg(args: string[], timeoutMs: number, label: string
   } catch (e) {
     const stderr = String((e as { stderr?: unknown })?.stderr ?? (e instanceof Error ? e.message : e));
     console.error(`[ffmpeg:${label}]`, stderr.slice(-2000));
-    const first = stderr
+    const meaningful = stderr
       .split("\n")
       .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith("ffmpeg version") && !l.startsWith("  ") && !l.startsWith("Fontconfig error"))
-      .slice(-1)[0];
-    const hint = /No such file/i.test(stderr)
+      .filter((l) => l && !l.startsWith("ffmpeg version") && !l.startsWith("  ") && !/^Fontconfig error/i.test(l));
+    const first = meaningful.slice(-1)[0];
+    const meaningfulText = meaningful.join("\n");
+    const hint = /No such file/i.test(meaningfulText)
       ? "a source file went missing"
-      : /Invalid data found|could not find codec|invalid/i.test(stderr)
+      : /Invalid data found|could not find codec|invalid/i.test(meaningfulText)
         ? "the video data could not be read"
         : "video processing failed";
     throw new Error(`Clip ${label} failed: ${hint}${first ? ` (${first.slice(0, 160)})` : ""}.`);

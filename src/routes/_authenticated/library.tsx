@@ -9,7 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/app/AppShell";
 import { mediaQuery, kindFromMime, formatBytes, signedUrl, type MediaAsset } from "@/lib/data";
 import { analyzeMedia } from "@/lib/media.functions";
-import { brandClip, regenerateThumbnail } from "@/lib/clips.functions";
+import { brandClip, regenerateThumbnail, setThumbnailImage } from "@/lib/clips.functions";
 import { makeThumbnail } from "@/lib/thumb.functions";
 import { loadWatermarkSettings } from "@/components/app/WatermarkDialog";
 import { splitVideo } from "@/lib/clips.functions";
@@ -118,18 +118,20 @@ function Library() {
   const analyze = useServerFn(analyzeMedia);
   const makeCover = useServerFn(makeThumbnail);
   const brand = useServerFn(brandClip);
+  const setThumbImg = useServerFn(setThumbnailImage);
   const [brandingId, setBrandingId] = useState<string | null>(null);
   const split = useServerFn(splitVideo);
   const [dragging, setDragging] = useState(false);
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [filter, setFilter] = useState<"all" | "video" | "image" | "audio">("all");
   const [search, setSearch] = useState("");
-  const [preview, setPreview] = useState<{ asset: MediaAsset; url: string; thumbUrl?: string } | null>(null);
+  const [preview, setPreview] = useState<{ asset: MediaAsset; url: string; thumbUrl?: string | undefined } | null>(null);
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const [splittingId, setSplittingId] = useState<string | null>(null);
   const [regenThumbId, setRegenThumbId] = useState<string | null>(null);
   const [covering, setCovering] = useState(false);
-  const [cover, setCover] = useState<{ asset: MediaAsset; headline: string; subline: string; style: "gold" | "white" } | null>(null);
+  const [cover, setCover] = useState<{ asset: MediaAsset; headline: string; subline: string; style: "gold" | "white"; image?: string } | null>(null);
+  const [thumbImgBusy, setThumbImgBusy] = useState(false);
 
   function coverDefaults(asset: MediaAsset): { headline: string; subline: string } {
     const m = /^Clip:\s*(.+?)\.\s*Hook:\s*(.+)$/s.exec(asset.analysis_text ?? "");
@@ -156,6 +158,30 @@ function Library() {
       toast.error(e instanceof Error ? e.message : "Cover render failed");
     } finally {
       setCovering(false);
+    }
+  }
+
+  function pickCoverImage(file: File | undefined) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string" && cover) setCover({ ...cover, image: reader.result });
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function applyCoverImage() {
+    if (!cover?.image) return;
+    setThumbImgBusy(true);
+    try {
+      await setThumbImg({ data: { assetId: cover.asset.id, imageDataUrl: cover.image } });
+      await qc.invalidateQueries({ queryKey: ["media"] });
+      setCover(null);
+      toast.success("Custom image saved as this clip's thumbnail.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save image");
+    } finally {
+      setThumbImgBusy(false);
     }
   }
   const [analysis, setAnalysis] = useState<{ name: string; summary: string } | null>(null);
@@ -627,6 +653,22 @@ function Library() {
                 {covering ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ImagePlus className="mr-2 h-4 w-4" />}
                 {covering ? "Painting cover…" : "Make cover"}
               </Button>
+              <div className="space-y-2 border-t border-border pt-4">
+                <Label htmlFor="cover-image">Or use your own image as the thumbnail</Label>
+                <Input
+                  id="cover-image"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={(e) => pickCoverImage(e.target.files?.[0])}
+                />
+                {cover.image && (
+                  <img src={cover.image} alt="Custom thumbnail" className="h-40 w-full rounded-lg object-cover" />
+                )}
+                <Button variant="outline" className="w-full" onClick={applyCoverImage} disabled={!cover.image || thumbImgBusy}>
+                  {thumbImgBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ImageIcon className="mr-2 h-4 w-4" />}
+                  Use this image as thumbnail
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>
