@@ -683,6 +683,148 @@ export const startCutJob = createServerFn({ method: "POST" })
     return { jobId: job.id };
   });
 
+// --- Brand whole video (no cut) -------------------------------------------
+// "Post it like that": keep the full video, burn in thumbnail + logo +
+// watermark, write captions. Reuses the same cutWithBranding path with one
+// moment spanning 0 → duration, so branding matches the cut pipeline exactly.
+
+const StartBrandInput = z.object({
+  source: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("library"), assetId: z.string().uuid() }),
+    z.object({ kind: z.literal("inbox"), filename: z.string().min(1).max(200) }),
+  ]),
+  title: z.string().max(120).optional(),
+  summary: z.string().max(600).optional(),
+  vertical: z.boolean().default(false),
+  quality: z.enum(["fast", "best"]).default("fast"),
+  watermarkText: z.string().max(100).optional(),
+  watermarkPosition: z.string().default("middle-center"),
+  watermarkSize: z.enum(["small", "medium", "large"]).default("medium"),
+  logoDataUrl: z.string().max(500000).optional(),
+  logoPosition: z
+    .enum(["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right", "none"])
+    .default("none"),
+  tone: z.string().max(80).default("Bold & prophetic"),
+  platforms: z.array(z.string()).min(1),
+});
+
+async function runBrandJob(
+  jobId: string,
+  ctx: SupabaseCtx,
+  data: z.infer<typeof StartBrandInput>,
+): Promise<void> {
+  try {
+    await updateJob(jobId, { progress: "Preparing video…" });
+    let inputPath = "";
+    let baseName = "";
+    if (data.source.kind === "library") {
+      const { data: asset, error } = await ctx.supabase
+        .from("media_assets")
+        .select("name, kind, storage_path, size_bytes")
+        .eq("id", data.source.assetId)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!asset) throw new Error("Video not found.");
+      if (asset.kind !== "video") throw new Error("Only videos can be branded.");
+      inputPath = await cachedSource({
+        supabase: ctx.supabase,
+        storagePath: asset.storage_path,
+        expectedSize: Number(asset.size_bytes) || null,
+        name: asset.name,
+      });
+      baseName = asset.name.replace(/\.[a-z0-9]+$/i, "");
+    } else {
+      const dir = await inboxDir();
+      inputPath = safeJoin(dir, data.source.filename);
+      const st = await stat(inputPath).catch(() => null);
+      if (!st?.isFile()) throw new Error("File not found in the inbox folder.");
+      baseName = basename(data.source.filename).replace(/\.[a-z0-9]+$/i, "");
+    }
+
+    const { probeDurationSeconds } = await import("@/lib/cutting.server");
+    const duration = await probeDurationSeconds(inputPath);
+    if (!duration) throw new Error("Could not determine this video's length.");
+    const moment: Moment = {
+      start: 0,
+      end: duration,
+      title: data.title?.trim() || baseName,
+      hook: "",
+      summary: data.summary?.trim() || "",
+    };
+
+    await updateJob(jobId, { progress: "Branding video — logo, watermark, thumbnail…" });
+    const kept = await cutWithBranding(ctx, {
+      inputPath,
+      baseName,
+      index: 0,
+      moment,
+      vertical: data.vertical,
+      quality: data.quality,
+      watermarkText: data.watermarkText ?? undefined,
+      watermarkPosition: data.watermarkPosition ?? "middle-center",
+      watermarkSize: data.watermarkSize ?? "medium",
+      logoDataUrl: data.logoDataUrl ?? undefined,
+      logoPosition: data.logoPosition ?? "none",
+    });
+
+    const written: { clipId: string; clipName: string; outputs: import("@/lib/ai.functions").RepurposeOutput[] }[] = [];
+    let created = 0;
+    await updateJob(jobId, { progress: "Writing captions…" });
+    try {
+      const idea = `Full video: ${kept.title}. ${moment.summary}`.slice(0, 2000);
+      const result = await repurposeCore({
+        idea,
+        tone: data.tone,
+        platforms: data.platforms as PlatformId[],
+        mediaName: kept.name,
+        mediaKind: "video",
+      });
+      written.push({ clipId: kept.id, clipName: kept.name, outputs: result.outputs });
+      const day = new Date();
+      day.setDate(day.getDate() + 1);
+      day.setHours(18, 0, 0, 0);
+      for (const o of result.outputs) {
+        const { error } = await ctx.supabase.from("scheduled_posts").insert({
+          user_id: ctx.userId,
+          title: o.title,
+          content: `${o.body}\n\n${o.hashtags.join(" ")}`.trim(),
+          platform: o.platform,
+          status: "draft",
+          scheduled_at: day.toISOString(),
+          hashtags: o.hashtags,
+          media_asset_id: kept.id,
+        });
+        if (!error) created++;
+      }
+    } catch (e) {
+      console.warn(`[brand-job] captions failed for ${kept.name}:`, e instanceof Error ? e.message : e);
+    }
+
+    await updateJob(jobId, {
+      status: "done",
+      progress: `Video branded${created > 0 ? `, ${created} drafts queued` : ""}`,
+      clips: [{ id: kept.id, name: kept.name, title: kept.title, thumbnailPath: kept.thumbnailPath }],
+      captions: written,
+      drafts: created,
+    });
+  } catch (e) {
+    await updateJob(jobId, {
+      status: "failed",
+      progress: "Branding failed",
+      error: e instanceof Error ? e.message : "Branding failed",
+    }).catch(() => {});
+  }
+}
+
+export const startBrandJob = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => StartBrandInput.parse(input))
+  .handler(async ({ data, context }) => {
+    const job = await createJob(context.userId, "cut");
+    void runBrandJob(job.id, { supabase: context.supabase, userId: context.userId }, data);
+    return { jobId: job.id };
+  });
+
 const GetJobInput = z.object({ jobId: z.string().uuid() });
 
 export const getJob = createServerFn({ method: "GET" })

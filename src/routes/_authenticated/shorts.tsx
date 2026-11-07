@@ -3,13 +3,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Clapperboard, HardDrive, Loader2, Scissors, ArrowRight, CalendarCheck, RefreshCw, Copy, Check, ExternalLink } from "lucide-react";
+import { Clapperboard, HardDrive, Loader2, Scissors, ArrowRight, CalendarCheck, RefreshCw, Copy, Check, ExternalLink, ImageIcon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/app/AppShell";
 import { mediaQuery, signedUrl, type MediaAsset } from "@/lib/data";
 import { PLATFORMS } from "@/lib/platforms";
 import { PlatformChip } from "@/components/app/PlatformBadge";
-import { listInbox, startDetectJob, startCutJob, getJob } from "@/lib/batch.functions";
+import { listInbox, startDetectJob, startCutJob, startBrandJob, getJob } from "@/lib/batch.functions";
 import { loadWatermarkSettings } from "@/components/app/WatermarkDialog";
 import { formatBytes } from "@/lib/data";
 import { Button } from "@/components/ui/button";
@@ -195,7 +195,12 @@ function Shorts() {
   const runList = useServerFn(listInbox);
   const runStartDetect = useServerFn(startDetectJob);
   const runStartCut = useServerFn(startCutJob);
+  const runStartBrand = useServerFn(startBrandJob);
   const runGetJob = useServerFn(getJob);
+
+  const [mode, setMode] = useState<"cut" | "brand">("cut");
+  const [brandTitle, setBrandTitle] = useState("");
+  const [brandSummary, setBrandSummary] = useState("");
 
   const [source, setSource] = useState<Source | null>(null);
   const [localName, setLocalName] = useState("");
@@ -398,7 +403,8 @@ function Shorts() {
       return;
     }
     const src = source;
-    const targetSeconds = Number(targetLen);
+    const rawTarget = Number(targetLen);
+    const targetSeconds = Number.isFinite(rawTarget) ? Math.min(120, Math.max(20, rawTarget)) : 60;
     setPhase("detecting");
     setProgress("Preparing video — first run downloads it once, then it's cached…");
     setMoments(null);
@@ -531,6 +537,79 @@ function Shorts() {
   }
 
 
+  async function brandFullVideo() {
+    if (!source || platforms.length === 0) {
+      toast.error("Pick a source and tick at least one platform.");
+      return;
+    }
+    const src = source;
+    const dims = src.kind === "library" ? { w: Number(src.asset.width) || 0, h: Number(src.asset.height) || 0 } : null;
+    setPhase("cutting");
+    setProgress("Starting branding job…");
+    setCaptions([]);
+    try {
+      const { jobId } = await runStartBrand({
+        data: {
+          source:
+            src.kind === "library"
+              ? { kind: "library" as const, assetId: src.asset.id }
+              : { kind: "inbox" as const, filename: src.filename },
+          title: brandTitle.trim() || undefined,
+          summary: brandSummary.trim() || undefined,
+          vertical: dims ? vertical && dims.w > dims.h : vertical,
+          quality: quality as "fast" | "best",
+          watermarkText: watermark.text || undefined,
+          watermarkPosition: watermark.position,
+          watermarkSize: watermark.size,
+          logoDataUrl: watermark.logoDataUrl || undefined,
+          logoPosition: watermark.logoPosition,
+          tone,
+          platforms,
+        },
+      });
+      try {
+        localStorage.setItem(JOB_KEY, JSON.stringify({ jobId, kind: "cut" }));
+      } catch {
+        // Ignore storage errors.
+      }
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const job = await runGetJob({ data: { jobId } });
+        setProgress(job.progress);
+        if (job.status === "done") {
+          const cls = (job.clips as ClipRef[]) ?? [];
+          setClips(cls);
+          setCaptions((job.captions as CaptionSet[]) ?? []);
+          setDrafts(Number(job.drafts) || 0);
+          setPhase("done");
+          setProgress("");
+          try {
+            localStorage.removeItem(JOB_KEY);
+          } catch {
+            // Ignore.
+          }
+          await qc.invalidateQueries({ queryKey: ["media"] });
+          await qc.invalidateQueries({ queryKey: ["posts"] });
+          toast.success(`Video branded${Number(job.drafts) > 0 ? `, ${job.drafts} drafts queued` : ""}.`);
+          return;
+        }
+        if (job.status === "failed") {
+          throw new Error(job.error || "Branding failed");
+        }
+      }
+    } catch (err) {
+      setPhase("idle");
+      setProgress("");
+      try {
+        localStorage.removeItem(JOB_KEY);
+      } catch {
+        // Ignore.
+      }
+      toast.error(err instanceof Error ? err.message : "Branding failed");
+    }
+  }
+
+
   return (
     <div>
       <PageHeader
@@ -619,18 +698,109 @@ function Shorts() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 items-end gap-3">
-            <div className="space-y-2">
-              <Label>Clip length</Label>
-              <Select value={targetLen} onValueChange={setTargetLen}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="30">~30 sec</SelectItem>
-                  <SelectItem value="60">~1 min</SelectItem>
-                  <SelectItem value="90">~90 sec</SelectItem>
-                </SelectContent>
-              </Select>
+          <div className="space-y-2">
+            <Label>What do you want to do?</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("cut");
+                  setMoments(null);
+                  setClips([]);
+                  setCaptions([]);
+                  setDrafts(0);
+                }}
+                className={cn(
+                  "rounded-lg border p-3 text-left text-sm transition",
+                  mode === "cut" ? "border-primary/60 bg-accent/60 ring-1 ring-primary/40" : "border-border/60 hover:bg-accent/40",
+                )}
+              >
+                <span className="flex items-center gap-1.5 font-semibold"><Scissors className="h-4 w-4 text-primary" /> Cut into clips</span>
+                <span className="mt-1 block text-xs text-muted-foreground">Find highlights, cut vertical shorts with thumbnail + captions.</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("brand");
+                  setVertical(false);
+                  setMoments(null);
+                  setClips([]);
+                  setCaptions([]);
+                  setDrafts(0);
+                }}
+                className={cn(
+                  "rounded-lg border p-3 text-left text-sm transition",
+                  mode === "brand" ? "border-primary/60 bg-accent/60 ring-1 ring-primary/40" : "border-border/60 hover:bg-accent/40",
+                )}
+              >
+                <span className="flex items-center gap-1.5 font-semibold"><ImageIcon className="h-4 w-4 text-primary" /> Brand full video</span>
+                <span className="mt-1 block text-xs text-muted-foreground">No cut — just thumbnail, logo + watermark, then post it.</span>
+              </button>
             </div>
+          </div>
+
+          {mode === "cut" && (
+            <div className="space-y-2">
+              <Label>Clip length (seconds)</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={20}
+                  max={120}
+                  value={targetLen}
+                  onChange={(e) => setTargetLen(e.target.value)}
+                  onBlur={() => {
+                    const n = Number(targetLen);
+                    if (!Number.isFinite(n)) setTargetLen("60");
+                    else setTargetLen(String(Math.min(120, Math.max(20, Math.round(n)))));
+                  }}
+                  aria-label="Clip length in seconds"
+                />
+                <span className="shrink-0 text-xs text-muted-foreground">sec</span>
+              </div>
+              <div className="flex gap-1.5">
+                {["30", "60", "90"].map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setTargetLen(v)}
+                    className={cn(
+                      "rounded-full border px-2.5 py-0.5 text-xs transition",
+                      targetLen === v ? "border-primary/60 bg-accent text-primary" : "border-border/60 text-muted-foreground hover:bg-accent/40",
+                    )}
+                  >
+                    {v === "30" ? "~30s" : v === "60" ? "~1min" : "~90s"}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">Type any length from 20–120 seconds — type 45 for 45-second clips.</p>
+            </div>
+          )}
+
+          {mode === "brand" && (
+            <div className="space-y-3 rounded-lg border border-border/60 p-3">
+              <div className="space-y-2">
+                <Label>Video title (optional)</Label>
+                <Input
+                  value={brandTitle}
+                  onChange={(e) => setBrandTitle(e.target.value)}
+                  placeholder="Leave blank to use the file name"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>What is this video about? (for captions)</Label>
+                <textarea
+                  value={brandSummary}
+                  onChange={(e) => setBrandSummary(e.target.value)}
+                  rows={3}
+                  placeholder="e.g. A worship session — God is faithful through hard seasons, with encouragement to keep trusting Him."
+                  className="flex min-h-[64px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 items-end gap-3">
             <div className="space-y-2">
               <Label>Quality</Label>
               <Select value={quality} onValueChange={setQuality}>
@@ -683,17 +853,36 @@ function Shorts() {
             </div>
           )}
 
-          <Button onClick={detect} disabled={phase !== "idle" || !source} className="w-full bg-gold-gradient font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50">
-            {phase === "detecting" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Scissors className="mr-2 h-4 w-4" />}
-            {phase === "detecting" ? "Watching…" : "1 · Detect highlights"}
-          </Button>
-          {phase === "detecting" && progress && (
-            <p className="text-center text-xs text-muted-foreground">{progress}</p>
-          )}
-          {phase === "detecting" && (
-            <p className="text-center text-[11px] text-muted-foreground/70">
-              Runs in the background on the server — you can leave this page and come back.
-            </p>
+          {mode === "cut" ? (
+            <>
+              <Button onClick={detect} disabled={phase !== "idle" || !source} className="w-full bg-gold-gradient font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50">
+                {phase === "detecting" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Scissors className="mr-2 h-4 w-4" />}
+                {phase === "detecting" ? "Watching…" : "1 · Detect highlights"}
+              </Button>
+              {phase === "detecting" && progress && (
+                <p className="text-center text-xs text-muted-foreground">{progress}</p>
+              )}
+              {phase === "detecting" && (
+                <p className="text-center text-[11px] text-muted-foreground/70">
+                  Runs in the background on the server — you can leave this page and come back.
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <Button onClick={brandFullVideo} disabled={phase !== "idle" || !source} className="w-full bg-gold-gradient font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50">
+                {phase === "cutting" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ImageIcon className="mr-2 h-4 w-4" />}
+                {phase === "cutting" ? "Branding…" : "Brand full video + write captions"}
+              </Button>
+              {phase === "cutting" && progress && (
+                <p className="text-center text-xs text-muted-foreground">{progress}</p>
+              )}
+              {phase === "cutting" && (
+                <p className="text-center text-[11px] text-muted-foreground/70">
+                  Runs in the background on the server — you can leave this page and come back.
+                </p>
+              )}
+            </>
           )}
         </div>
 
@@ -702,18 +891,23 @@ function Shorts() {
             <div className="panel grain flex flex-col items-center gap-3 p-16 text-center">
               <Clapperboard className="h-9 w-9 text-primary/60" />
               <p className="font-display text-lg font-semibold">
-                {source
-                  ? `Ready — press 1 · Detect highlights`
-                  : "Pick a source, then detect"}
+                {mode === "brand"
+                  ? source
+                    ? "Ready — press Brand full video"
+                    : "Pick a source, then brand it"
+                  : source
+                    ? "Ready — press 1 · Detect highlights"
+                    : "Pick a source, then detect"}
               </p>
               <p className="max-w-md text-sm text-muted-foreground">
-                Library videos cut from cloud storage; inbox files are read straight off your disk —
-                ideal for hour-long recordings.
+                {mode === "brand"
+                  ? "The whole video is kept — thumbnail, logo + watermark are burned in and captions are written. Uncheck Vertical (below) to keep the original size, check it to convert to vertical 9:16."
+                  : "Library videos cut from cloud storage; inbox files are read straight off your disk — ideal for hour-long recordings."}
               </p>
             </div>
           )}
 
-          {moments && (
+          {moments && mode === "cut" && (
             <div className="panel space-y-2 p-5">
               <p className="font-display font-semibold">Moments found — uncheck any to skip</p>
               {moments.map((m, i) => (
