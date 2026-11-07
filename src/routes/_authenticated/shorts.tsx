@@ -29,7 +29,7 @@ export const Route = createFileRoute("/_authenticated/shorts")({
   component: Shorts,
 });
 
-const TONES = ["Bold & prophetic", "Warm & pastoral", "Teaching & scriptural", "Urgent call to action", "Conversational", "Testimony driven"];
+const TONES = ["Storytelling", "Bold Takes", "Breaking / Urgent", "Deep Dive / Educational", "Inspirational"];
 
 type Moment = { start: number; end: number; title: string; hook: string; summary: string; checked: boolean };
 type ClipRef = { id: string; name: string; title: string; thumbnailPath: string | null };
@@ -206,9 +206,9 @@ function Shorts() {
   const [localName, setLocalName] = useState("");
   const [inbox, setInbox] = useState<{ dir: string; videos: { name: string; sizeBytes: number; mtime: number }[] } | null>(null);
   const [targetLen, setTargetLen] = useState("60");
-  const [vertical, setVertical] = useState(true);
+  const [format, setFormat] = useState<"vertical" | "landscape" | "original">("vertical");
   const [quality, setQuality] = useState("fast");
-  const [tone, setTone] = useState(TONES[0]!);
+  const [tone, setTone] = useState("");
   const [platforms, setPlatforms] = useState<string[]>(["youtube_shorts", "tiktok", "instagram_reels", "x"]);
   const [moments, setMoments] = useState<Moment[] | null>(null);
   const [phase, setPhase] = useState<"idle" | "detecting" | "cutting" | "captioning" | "done">("idle");
@@ -309,7 +309,7 @@ function Shorts() {
             : { kind: "inbox", filename: source.filename },
         moments,
         targetLen,
-        vertical,
+        vertical: format === "vertical",
         quality,
         tone,
         platforms,
@@ -318,7 +318,7 @@ function Shorts() {
     } catch {
       // Storage full or blocked — the run still works, just without resume.
     }
-  }, [moments, source, targetLen, vertical, quality, tone, platforms]);
+  }, [moments, source, targetLen, format, quality, tone, platforms]);
 
   // Restore a previous moments list once the library has loaded.
   useEffect(() => {
@@ -342,7 +342,7 @@ function Shorts() {
     }
     setMoments(saved.moments);
     setTargetLen(saved.targetLen);
-    setVertical(saved.vertical);
+    setFormat(saved.vertical ? "vertical" : "original");
     setQuality(saved.quality);
     setTone(saved.tone);
     setPlatforms(saved.platforms);
@@ -465,8 +465,11 @@ function Shorts() {
       toast.error("Pick a source, keep at least one moment, and tick a platform.");
       return;
     }
+    if (!tone) {
+      toast.error("Choose a content kind first (the Tone dropdown).");
+      return;
+    }
     const src = source;
-    const dims = src.kind === "library" ? { w: Number(src.asset.width) || 0, h: Number(src.asset.height) || 0 } : null;
     setPhase("cutting");
     setProgress("Starting background job…");
     setCaptions([]);
@@ -478,7 +481,7 @@ function Shorts() {
               ? { kind: "library" as const, assetId: src.asset.id }
               : { kind: "inbox" as const, filename: src.filename },
           moments: wanted.map((m) => ({ start: m.start, end: m.end, title: m.title, hook: m.hook, summary: m.summary })),
-          vertical: dims ? vertical && dims.w > dims.h : vertical,
+          format,
           quality: quality as "fast" | "best",
           watermarkText: watermark.text || undefined,
           watermarkPosition: watermark.position,
@@ -542,8 +545,15 @@ function Shorts() {
       toast.error("Pick a source and tick at least one platform.");
       return;
     }
+    if (!tone) {
+      toast.error("Choose a content kind first (the Tone dropdown).");
+      return;
+    }
+    if (brandSummary.trim().length < 20) {
+      toast.error("Tell ETS what happens in the video (at least one sentence) so the cover and captions can describe it.");
+      return;
+    }
     const src = source;
-    const dims = src.kind === "library" ? { w: Number(src.asset.width) || 0, h: Number(src.asset.height) || 0 } : null;
     setPhase("cutting");
     setProgress("Starting branding job…");
     setCaptions([]);
@@ -556,7 +566,7 @@ function Shorts() {
               : { kind: "inbox" as const, filename: src.filename },
           title: brandTitle.trim() || undefined,
           summary: brandSummary.trim() || undefined,
-          vertical: dims ? vertical && dims.w > dims.h : vertical,
+          format,
           quality: quality as "fast" | "best",
           watermarkText: watermark.text || undefined,
           watermarkPosition: watermark.position,
@@ -722,7 +732,7 @@ function Shorts() {
                 type="button"
                 onClick={() => {
                   setMode("brand");
-                  setVertical(false);
+                  setFormat("original");
                   setMoments(null);
                   setClips([]);
                   setCaptions([]);
@@ -788,7 +798,7 @@ function Shorts() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>What is this video about? (for captions)</Label>
+                <Label>What is this video about? (required — feeds captions + cover)</Label>
                 <textarea
                   value={brandSummary}
                   onChange={(e) => setBrandSummary(e.target.value)}
@@ -812,18 +822,25 @@ function Shorts() {
               </Select>
             </div>
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={vertical} onChange={(e) => setVertical(e.target.checked)} />
-            Vertical 9:16
-          </label>
-          <p className="-mt-3 text-xs text-muted-foreground">
-            Vertical re-encode is the slow part — uncheck for much faster original-ratio cuts.
-          </p>
+          <div className="space-y-2">
+            <Label>Dimensions</Label>
+            <Select value={format} onValueChange={(v) => setFormat(v as "vertical" | "landscape" | "original")}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="vertical">Vertical 9:16 — Shorts / Reels / TikTok</SelectItem>
+                <SelectItem value="landscape">Landscape 16:9 — YouTube long-form</SelectItem>
+                <SelectItem value="original">Original — keep as-is</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              9:16 crops to a phone screen; 16:9 fits YouTube long videos; Original keeps the source untouched. The re-encode is the slow part.
+            </p>
+          </div>
 
           <div className="space-y-2">
-            <Label>Tone</Label>
+            <Label>Content kind (tone)</Label>
             <Select value={tone} onValueChange={setTone}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="Choose a content kind…" /></SelectTrigger>
               <SelectContent>
                 {TONES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
               </SelectContent>
@@ -870,7 +887,7 @@ function Shorts() {
             </>
           ) : (
             <>
-              <Button onClick={brandFullVideo} disabled={phase !== "idle" || !source} className="w-full bg-gold-gradient font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50">
+              <Button onClick={brandFullVideo} disabled={phase !== "idle" || !source || !tone} className="w-full bg-gold-gradient font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50">
                 {phase === "cutting" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ImageIcon className="mr-2 h-4 w-4" />}
                 {phase === "cutting" ? "Branding…" : "Brand full video + write captions"}
               </Button>
@@ -901,7 +918,7 @@ function Shorts() {
               </p>
               <p className="max-w-md text-sm text-muted-foreground">
                 {mode === "brand"
-                  ? "The whole video is kept — thumbnail, logo + watermark are burned in and captions are written. Uncheck Vertical (below) to keep the original size, check it to convert to vertical 9:16."
+                  ? "The whole video is kept — thumbnail, logo + watermark are burned in and captions are written. Pick Dimensions (below): 9:16 for phone feed, 16:9 for YouTube long-form, or Original."
                   : "Library videos cut from cloud storage; inbox files are read straight off your disk — ideal for hour-long recordings."}
               </p>
             </div>
@@ -924,7 +941,7 @@ function Shorts() {
               ))}
               <Button
                 className="mt-2 w-full bg-gold-gradient font-semibold text-primary-foreground hover:opacity-90"
-                disabled={phase === "cutting" || phase === "captioning" || !moments.some((m) => m.checked)}
+                disabled={phase === "cutting" || phase === "captioning" || !tone || !moments.some((m) => m.checked)}
                 onClick={() => void cutAndCaption()}
               >
                 {(phase === "cutting" || phase === "captioning") ? (

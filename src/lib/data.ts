@@ -1,6 +1,8 @@
 import { queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
+import { deletePost } from "@/lib/posts.functions";
 
 export type MediaAsset = Database["public"]["Tables"]["media_assets"]["Row"];
 export type ScheduledPost = Database["public"]["Tables"]["scheduled_posts"]["Row"];
@@ -84,12 +86,21 @@ export async function signedUrl(path: string, expires = 3600) {
 
 export function useDeletePost() {
   const qc = useQueryClient();
+  const runDelete = useServerFn(deletePost);
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("scheduled_posts").delete().eq("id", id);
-      if (error) throw error;
+      // Server-function path: the JWT rides on the request header, the same
+      // transport that already works for inserts (cut/brand jobs queue
+      // drafts). The server verifies the row is actually gone.
+      await runDelete({ data: { postId: id } });
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["posts"] }),
+    onSuccess: (_data, id) => {
+      // Remove instantly so a slow refetch never looks like a failed delete.
+      qc.setQueryData<Database["public"]["Tables"]["scheduled_posts"]["Row"][]>(["posts"], (rows) =>
+        (rows ?? []).filter((r) => r.id !== id),
+      );
+      qc.invalidateQueries({ queryKey: ["posts"] });
+    },
   });
 }
 

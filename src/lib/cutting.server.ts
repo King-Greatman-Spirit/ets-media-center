@@ -55,6 +55,13 @@ export function verticalFilter(height: 720 | 1080): string {
   return `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1`;
 }
 
+/** 16:9 for YouTube long-form: fill-crop to WxH. `width` is the short side. */
+export function landscapeFilter(width: 720 | 1080): string {
+  const h = width;
+  const w = Math.round((width * 16) / 9);
+  return `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1`;
+}
+
 /** 9:16 for Shorts/Reels/TikTok: fill-crop to 1080x1920. */
 export const VERTICAL_FILTER = verticalFilter(1080);
 
@@ -376,20 +383,37 @@ export async function cutUploadRegisterClip(opts: {
     | "middle-left" | "middle-center" | "middle-right"
     | "bottom-left" | "bottom-center" | "bottom-right"
     | "none";
+  /** Cover frame time (seconds in the ORIGINAL video). Defaults to ~15% into the clip. */
+  coverAt?: number | undefined;
+  /** Cover headline / gold hook. Defaults to the moment's AI-written title/hook. */
+  coverHeadline?: string | undefined;
+  coverSubline?: string | undefined;
+  /**
+   * Output ratio: "vertical" (9:16 Shorts/Reels/TikTok), "landscape" (16:9
+   * YouTube long-form) or "original" (keep the source ratio). Overrides the
+   * legacy `vertical` boolean when present.
+   */
+  format?: "vertical" | "landscape" | "original" | undefined;
 }): Promise<CutResult> {
   if (!ffmpegPath) throw new Error("Video tools are unavailable on the server.");
   const { supabase, userId, inputPath, baseName, index, moment, vertical } = opts;
+  const format = opts.format ?? (vertical ? "vertical" : "original");
   const quality = opts.quality ?? "fast";
   const length = Math.round((moment.end - moment.start) * 10) / 10;
   if (!(length > 0)) throw new Error("Empty clip range.");
 
-  // Already vertical? Skip the slow re-encode entirely — stream copy instead.
-  // NOTE: any pixel filter (watermark text/logo) forces a re-encode; filters
-  // and stream-copy are mutually exclusive in ffmpeg.
-  let convert = vertical;
-  if (vertical) {
+  // Already in the target ratio? Skip the slow re-encode for the ratio —
+  // stream copy instead. NOTE: any pixel filter (watermark/logo) still
+  // forces a re-encode; filters and stream-copy are mutually exclusive.
+  let convert = format === "vertical" || format === "landscape";
+  if (format === "vertical") {
     const info = await probeMediaInfo(inputPath);
     if (info.width > 0 && info.height > 0 && info.height / info.width >= 1.5) {
+      convert = false;
+    }
+  } else if (format === "landscape") {
+    const info = await probeMediaInfo(inputPath);
+    if (info.width > 0 && info.height > 0 && Math.abs(info.width / info.height - 16 / 9) < 0.02) {
       convert = false;
     }
   }
@@ -451,11 +475,17 @@ export async function cutUploadRegisterClip(opts: {
       const logoY =
         vAlign === "top" ? String(logoMargin) : vAlign === "bottom" ? `H-h-${logoMargin}` : "(H-h)/2";
 
-      // Scale/crop FIRST: drawtext coordinates then refer to the final 9:16
-      // frame, so the watermark keeps its size and sits inside the frame.
+      // Scale/crop FIRST: drawtext coordinates then refer to the final frame,
+      // so the watermark keeps its size and sits inside the frame.
       // Logo, watermark and cut all happen in ONE encode — splitting the logo
       // into a second pass doubled the wait for no visual gain.
-      const chain = [verticalFilter(outWidth), ...filters].filter(Boolean).join(",");
+      const ratioFilter =
+        format === "vertical" ? verticalFilter(outWidth)
+        : format === "landscape" ? landscapeFilter(outWidth)
+        : null;
+      // Empty chain (original ratio + logo only, no watermark text) still
+      // needs a node in the graph — "null" passes the video straight through.
+      const chain = [ratioFilter, ...filters].filter(Boolean).join(",") || "null";
       cutArgs = [
         "-y", "-ss", String(start), "-i", inputPath,
         ...(useLogo ? ["-loop", "1", "-i", opts.logoPath as string] : []),
@@ -494,13 +524,13 @@ export async function cutUploadRegisterClip(opts: {
       const thumbFile = join(workdir, "thumb.jpg");
       // Cover from the ORIGINAL source frame: the clip already carries the logo
       // and watermark, so reusing it would double the branding.
-      const coverAt = Math.round((moment.start + Math.min(Math.max(length * 0.15, 1), 5)) * 10) / 10;
+      const coverAt = opts.coverAt ?? Math.round((moment.start + Math.min(Math.max(length * 0.15, 1), 5)) * 10) / 10;
       try {
         await renderAutoThumbnail({
           videoPath: inputPath,
           at: coverAt,
-          headline: moment.title || baseName,
-          subline: moment.hook ?? "",
+          headline: opts.coverHeadline !== undefined ? opts.coverHeadline : moment.title || baseName,
+          subline: opts.coverSubline !== undefined ? opts.coverSubline : moment.hook ?? "",
           logoPath: opts.logoPath ?? null,
           outPath: thumbFile,
           durationSeconds: length,

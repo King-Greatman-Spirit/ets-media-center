@@ -351,6 +351,10 @@ async function cutWithBranding(
     watermarkSize?: "small" | "medium" | "large" | undefined;
     logoDataUrl?: string | undefined;
     logoPosition?: "top-left" | "top-center" | "top-right" | "middle-left" | "middle-center" | "middle-right" | "bottom-left" | "bottom-center" | "bottom-right" | "none" | undefined;
+    coverAt?: number | undefined;
+    coverHeadline?: string | undefined;
+    coverSubline?: string | undefined;
+    format?: "vertical" | "landscape" | "original" | undefined;
   },
 ) {
   let logoPath: string | null = null;
@@ -375,6 +379,10 @@ async function cutWithBranding(
       watermarkSize: opts.watermarkSize ?? "medium",
       logoPath,
       logoPosition: opts.logoPosition ?? "none",
+      coverAt: opts.coverAt,
+      coverHeadline: opts.coverHeadline,
+      coverSubline: opts.coverSubline,
+      format: opts.format,
     });
   } finally {
     if (logoCleanup) await logoCleanup();
@@ -548,7 +556,7 @@ const StartCutInput = z.object({
     z.object({ kind: z.literal("inbox"), filename: z.string().min(1).max(200) }),
   ]),
   moments: z.array(MomentInput).min(1).max(24),
-  vertical: z.boolean().default(true),
+  format: z.enum(["vertical", "landscape", "original"]).default("vertical"),
   quality: z.enum(["fast", "best"]).default("fast"),
   watermarkText: z.string().max(100).optional(),
   watermarkPosition: z.string().default("middle-center"),
@@ -608,7 +616,8 @@ async function runCutJob(
         baseName,
         index: i,
         moment: m,
-        vertical: data.vertical,
+        vertical: data.format === "vertical",
+        format: data.format,
         quality: data.quality,
         watermarkText: data.watermarkText ?? undefined,
         watermarkPosition: data.watermarkPosition ?? "middle-center",
@@ -695,7 +704,7 @@ const StartBrandInput = z.object({
   ]),
   title: z.string().max(120).optional(),
   summary: z.string().max(600).optional(),
-  vertical: z.boolean().default(false),
+  format: z.enum(["vertical", "landscape", "original"]).default("original"),
   quality: z.enum(["fast", "best"]).default("fast"),
   watermarkText: z.string().max(100).optional(),
   watermarkPosition: z.string().default("middle-center"),
@@ -744,12 +753,35 @@ async function runBrandJob(
     const { probeDurationSeconds } = await import("@/lib/cutting.server");
     const duration = await probeDurationSeconds(inputPath);
     if (!duration) throw new Error("Could not determine this video's length.");
+
+    // Look at the video so the cover shows what actually happens in it and
+    // captions can name the real moment — not just the file name. If the AI is
+    // busy, branding still proceeds with the user's own title/summary.
+    let hero: Moment | null = null;
+    try {
+      await updateJob(jobId, { progress: "Looking for the best moment for your cover…" });
+      const frames = await extractFramesFromFile(inputPath, duration, 12);
+      if (frames.length >= 2) {
+        const found = await detectVideoMoments({
+          assetName: baseName,
+          duration,
+          targetSeconds: Math.min(120, Math.max(20, Math.round(duration / 6))),
+          frames,
+        });
+        hero = found[0] ?? null;
+      }
+    } catch (e) {
+      console.warn("[brand-job] hero detection skipped:", e instanceof Error ? e.message : e);
+    }
+
+    const userTitle = data.title?.trim() || "";
+    const userSummary = data.summary?.trim() || "";
     const moment: Moment = {
       start: 0,
       end: duration,
-      title: data.title?.trim() || baseName,
-      hook: "",
-      summary: data.summary?.trim() || "",
+      title: userTitle || hero?.title || baseName,
+      hook: hero?.hook ?? "",
+      summary: userSummary || hero?.summary || "",
     };
 
     await updateJob(jobId, { progress: "Branding video — logo, watermark, thumbnail…" });
@@ -758,20 +790,25 @@ async function runBrandJob(
       baseName,
       index: 0,
       moment,
-      vertical: data.vertical,
+      vertical: data.format === "vertical",
+      format: data.format,
       quality: data.quality,
       watermarkText: data.watermarkText ?? undefined,
       watermarkPosition: data.watermarkPosition ?? "middle-center",
       watermarkSize: data.watermarkSize ?? "medium",
       logoDataUrl: data.logoDataUrl ?? undefined,
       logoPosition: data.logoPosition ?? "none",
+      // Cover from inside the best moment (a real, expressive frame + real words)
+      coverAt: hero ? Math.round((hero.start + 1) * 10) / 10 : undefined,
+      coverHeadline: hero?.title,
+      coverSubline: hero?.hook,
     });
 
     const written: { clipId: string; clipName: string; outputs: import("@/lib/ai.functions").RepurposeOutput[] }[] = [];
     let created = 0;
     await updateJob(jobId, { progress: "Writing captions…" });
     try {
-      const idea = `Full video: ${kept.title}. ${moment.summary}`.slice(0, 2000);
+      const idea = `Full video: ${kept.title}. What happens: ${moment.summary}${hero ? ` Best moment: ${hero.title} — ${hero.hook}` : ""}`.slice(0, 2000);
       const result = await repurposeCore({
         idea,
         tone: data.tone,

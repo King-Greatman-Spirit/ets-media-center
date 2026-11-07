@@ -54,6 +54,45 @@ function CalendarPage() {
   const [postingId, setPostingId] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ post: ScheduledPost; url: string; thumb: string | null } | null>(null);
   const del = useDeletePost();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    const ids = queue.map((p) => p.id);
+    setSelected((prev) => (ids.every((id) => prev.has(id)) ? new Set() : new Set(ids)));
+  }
+
+  async function deleteSelected() {
+    const ids = [...selected];
+    if (ids.length === 0 || batchBusy) return;
+    setBatchBusy(true);
+    let ok = 0;
+    const failed: string[] = [];
+    let firstError = "";
+    for (const id of ids) {
+      try {
+        await del.mutateAsync(id);
+        ok++;
+      } catch (e) {
+        failed.push(id);
+        if (!firstError) firstError = e instanceof Error ? e.message : "Could not delete.";
+      }
+    }
+    setBatchBusy(false);
+    // Keep only the ones that failed (so you can retry or uncheck them).
+    setSelected(new Set(failed));
+    if (ok > 0) toast.success(ok === 1 ? "Removed 1 post from queue." : `Removed ${ok} posts from queue.`);
+    if (failed.length > 0) toast.error(`${failed.length} could not be deleted — ${firstError}`);
+  }
 
   const mediaById = useMemo(() => new Map((media.data ?? []).map((m) => [m.id, m])), [media.data]);
 
@@ -205,7 +244,48 @@ function CalendarPage() {
         </section>
 
         <section className="panel h-fit p-5">
-          <h2 className="mb-3 font-display text-lg font-semibold">Queue</h2>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-display text-lg font-semibold">Queue</h2>
+            {queue.length > 0 && (
+              <span className="text-xs text-muted-foreground">{selected.size} of {queue.length} selected</span>
+            )}
+          </div>
+          {queue.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={batchBusy}
+                onClick={toggleSelectAll}
+              >
+                Select all
+              </Button>
+              {selected.size > 0 && (
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    disabled={batchBusy}
+                    onClick={() => void deleteSelected()}
+                  >
+                    {batchBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-1.5 h-3.5 w-3.5" />}
+                    Delete {selected.size} selected
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={batchBusy}
+                    onClick={() => setSelected(new Set())}
+                  >
+                    Clear
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
           {posts.isLoading ? (
             <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
           ) : queue.length === 0 ? (
@@ -220,25 +300,49 @@ function CalendarPage() {
                 return (
                   <li key={p.id} className="group rounded-lg border border-border/60 bg-background/40 p-3">
                     <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(p.id)}
+                        disabled={batchBusy}
+                        onChange={() => toggleSelect(p.id)}
+                        aria-label={`Select ${p.title}`}
+                        className="h-4 w-4 shrink-0 cursor-pointer accent-amber-500"
+                      />
                       {asset?.thumbnail_path && (
                         <ThumbPreview assetId={asset.id} path={asset.thumbnail_path} />
                       )}
                       <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: pl?.color }} />
                       <span className="min-w-0 flex-1 truncate text-sm font-medium">{p.title}</span>
                       <Button
+                        type="button"
                         size="icon"
                         variant="ghost"
-                        className="h-6 w-6 text-muted-foreground opacity-0 transition group-hover:opacity-100 hover:text-primary"
+                        disabled={del.variables === p.id && del.isPending}
+                        className="h-6 w-6 text-muted-foreground opacity-70 transition group-hover:opacity-100 hover:text-primary"
                         onClick={() => openPreview(p)}
                         aria-label="Preview"
                       >
                         <Eye className="h-3.5 w-3.5" />
                       </Button>
                       <Button
+                        type="button"
                         size="icon"
                         variant="ghost"
-                        className="h-6 w-6 text-muted-foreground opacity-0 transition group-hover:opacity-100 hover:text-destructive"
-                        onClick={() => del.mutate(p.id)}
+                        disabled={del.variables === p.id && del.isPending}
+                        className="h-6 w-6 text-muted-foreground opacity-70 transition group-hover:opacity-100 hover:text-destructive"
+                        onClick={() => {
+                          const toastId = toast.loading("Deleting…");
+                          del.mutate(p.id, {
+                            onSuccess: () => {
+                              toast.dismiss(toastId);
+                              toast.success("Removed from queue.");
+                            },
+                            onError: (e) => {
+                              toast.dismiss(toastId);
+                              toast.error(e instanceof Error ? e.message : "Could not delete.");
+                            },
+                          });
+                        }}
                         aria-label="Delete post"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
