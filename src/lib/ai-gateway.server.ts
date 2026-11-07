@@ -12,13 +12,18 @@ export function createAIModels() {
   if (googleKey) {
     const google = createGoogleGenerativeAI({ apiKey: googleKey })
     return [
-      // "flash-latest" alias tracks the current stable Flash model, so this
-      // keeps working when Google retires numbered versions for new users.
-      google("gemini-flash-latest"),
-      // Google's recommended model for newly created keys.
-      google("gemini-3.8-flash"),
-      // Lite models usually have the most free-tier headroom.
+      // Lite models first: they answer in 2-5s even when the big Flash models
+      // are overloaded. Verified live for both vision (moment detection) and
+      // text (captions). The full-size models hang for 60s+ or 503 right now,
+      // which is why detection appeared to freeze: each segment burned a
+      // minute per dead model before failing over.
       google("gemini-3.5-flash-lite"),
+      google("gemini-flash-lite-latest"),
+      google("gemini-3.1-flash-lite"),
+      // Full-size fallbacks, only reached if every Lite model fails.
+      google("gemini-3.6-flash"),
+      google("gemini-3.5-flash"),
+      google("gemini-3.7-flash"),
     ]
   }
 

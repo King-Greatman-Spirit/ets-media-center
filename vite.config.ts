@@ -12,10 +12,12 @@ export default defineConfig({
     tailwindcss(),
   ],
   server: {
+    host: true,
     port: 5173,
     proxy: {
       "/api": {
-        target: "http://localhost:8000",
+        // 8001: port 8000 is taken by the Tareon Django project on this machine.
+        target: "http://127.0.0.1:8001",
         changeOrigin: true,
       },
     },

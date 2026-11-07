@@ -116,11 +116,14 @@ export async function detectVideoMoments(opts: {
   let lastError: unknown = null;
   for (const model of models) {
     try {
+      // Hard ceiling per attempt: without it an overloaded model can hang a
+      // segment for minutes, and 8 segments multiplied that into half an hour.
       const { object } = await generateObject({
         model,
         schema: MomentsSchema,
         messages: [{ role: "user", content: parts }],
         maxRetries: 0,
+        abortSignal: AbortSignal.timeout(30_000),
       });
       const moments = sanitizeMoments(object.moments, duration, opts.targetSeconds);
       if (moments.length > 0) return moments;

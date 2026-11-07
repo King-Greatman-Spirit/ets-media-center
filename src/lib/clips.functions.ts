@@ -99,7 +99,8 @@ export const splitVideo = createServerFn({ method: "POST" })
 const BrandInput = z.object({
   assetId: z.string().uuid(),
   watermarkText: z.string().max(100).optional(),
-  watermarkPosition: z.string().default("bottom-right"),
+  watermarkPosition: z.string().default("middle-center"),
+  watermarkSize: z.enum(["small", "medium", "large"]).default("medium"),
   logoDataUrl: z.string().max(500000).optional(),
   logoPosition: z
     .enum(["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right", "none"])
@@ -149,24 +150,47 @@ export const brandClip = createServerFn({ method: "POST" })
 
       const filters: string[] = [];
       if (hasText) {
-        const margin = 24;
+        // Probe the clip so Large/Medium mean the same at any resolution.
+        let fontSize = 32;
+        let margin = 24;
+        try {
+          const { probeMediaInfo } = await import("@/lib/cutting.server");
+          const info = await probeMediaInfo(inputPath);
+          const w = info.width || 720;
+          const ratio = data.watermarkSize === "large" ? 0.062 : data.watermarkSize === "small" ? 0.035 : 0.046;
+          fontSize = Math.max(18, Math.round(w * ratio));
+          margin = Math.round(w * 0.04);
+        } catch {
+          // Fall back to the defaults above.
+        }
         const pos = data.watermarkPosition;
         const x = pos.includes("right") ? `w-text_w-${margin}` : pos.includes("left") ? `${margin}` : `(w-text_w)/2`;
         const y = pos.includes("bottom") ? `h-text_h-${margin}` : pos.includes("top") ? `${margin}` : `(h-text_h)/2`;
         const escaped = data.watermarkText!.replace(/'/g, "\\'").replace(/:/g, "\\:");
-        filters.push(`drawtext=text='${escaped}':fontsize=32:fontcolor=white@0.6:x=${x}:y=${y}:shadowcolor=black@0.5:shadowx=2:shadowy=2`);
+        filters.push(`drawtext=text='${escaped}':fontsize=${fontSize}:fontcolor=white@0.6:x=${x}:y=${y}:shadowcolor=black@0.5:shadowx=2:shadowy=2`);
       }
 
       if (hasLogo) {
         const staged = await stageLogo(data.logoDataUrl!);
         logoCleanup = staged.cleanup;
         const [vAlign, hAlign] = data.logoPosition.split("-") as ["top" | "middle" | "bottom", "left" | "center" | "right"];
-        const x = hAlign === "left" ? "20" : hAlign === "right" ? "W-w-20" : "(W-w)/2";
-        const y = vAlign === "top" ? "20" : vAlign === "bottom" ? "H-h-20" : "(H-h)/2";
+        let logoWidth = 160;
+        let logoMargin = 20;
+        try {
+          const { probeMediaInfo } = await import("@/lib/cutting.server");
+          const info = await probeMediaInfo(inputPath);
+          const w = info.width || 720;
+          logoWidth = Math.max(110, Math.round(w * 0.24));
+          logoMargin = Math.max(16, Math.round(w * 0.03));
+        } catch {
+          // Keep the defaults.
+        }
+        const x = hAlign === "left" ? String(logoMargin) : hAlign === "right" ? `W-w-${logoMargin}` : "(W-w)/2";
+        const y = vAlign === "top" ? String(logoMargin) : vAlign === "bottom" ? `H-h-${logoMargin}` : "(H-h)/2";
         const vf = filters.length > 0 ? [...filters, "format=yuv420p"] : [];
         const fc = vf.length > 0
-          ? `[0:v]${vf.join(",")},format=yuv420p[v];[1:v]scale=160:-1[logo];[v][logo]overlay=${x}:${y}:shortest=1[outv]`
-          : `[0:v]format=yuv420p[v];[1:v]scale=160:-1[logo];[v][logo]overlay=${x}:${y}:shortest=1[outv]`;
+          ? `[0:v]${vf.join(",")},format=yuv420p[v];[1:v]scale=${logoWidth}:-1[logo];[v][logo]overlay=${x}:${y}:shortest=1[outv]`
+          : `[0:v]format=yuv420p[v];[1:v]scale=${logoWidth}:-1[logo];[v][logo]overlay=${x}:${y}:shortest=1[outv]`;
         await runFfmpeg(
           ["-y", "-i", inputPath, "-i", staged.path, "-filter_complex", fc,
             "-map", "[outv]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart", outFile],

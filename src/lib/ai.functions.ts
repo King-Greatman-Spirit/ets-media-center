@@ -30,10 +30,25 @@ const OutputSchema = z.object({
 
 export type RepurposeOutput = z.infer<typeof OutputSchema>["outputs"][number];
 
-export const repurposeContent = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => RepurposeInput.parse(input))
-  .handler(async ({ data }) => {
+/**
+ * Models often repeat the hashtags inside `body`. The app appends the hashtags
+ * array afterwards, so leaving them in would post every tag twice.
+ */
+function stripTrailingHashtags(body: string): string {
+  return body.replace(/(?:\s*#[\p{L}\p{N}_]+)+\s*$/u, "").trim();
+}
+
+function normaliseOutputs(outputs: RepurposeOutput[]): RepurposeOutput[] {
+  return outputs.map((o) => ({ ...o, body: stripTrailingHashtags(o.body) }));
+}
+
+export async function repurposeCore(data: {
+  idea: string;
+  tone: string | null;
+  platforms: PlatformId[];
+  mediaName: string | null;
+  mediaKind: "video" | "image" | "audio" | null;
+}): Promise<{ outputs: RepurposeOutput[] }> {
     const models = createAIModels();
     if (models.length === 0) {
       throw new Error(
@@ -46,7 +61,7 @@ export const repurposeContent = createServerFn({ method: "POST" })
       .map((p) => `- ${p.id} (${p.name}): limit ${p.charLimit} chars. Format: ${p.format}`)
       .join("\n");
 
-    const system = `You are the senior content strategist for End Time Soldiers (ETS), a Christian ministry media network with the motto "Raising a Kingdom Army for Such a Time as This". You repurpose one core idea into platform-native posts. Voice: bold, faith-filled, urgent yet hopeful, never preachy filler. Keep scripture references accurate. Never exceed platform character limits. Hashtags must not include the # symbol and must be lowercase without spaces. Produce exactly one output object per requested platform, in the order requested. Keep "title" under 90 characters. Keep "formatNotes" under 200 characters and "bestTime" under 60 characters.`;
+    const system = `You are the senior content strategist for End Time Soldiers (ETS), a Christian ministry media network with the motto "Raising a Kingdom Army for Such a Time as This". You repurpose one core idea into platform-native posts. Voice: bold, faith-filled, urgent yet hopeful, never preachy filler. Keep scripture references accurate. Never exceed platform character limits. Hashtags must not include the # symbol and must be lowercase without spaces. Never put hashtags inside "body" — return them only in the hashtags array, because the app appends them. Produce exactly one output object per requested platform, in the order requested. Keep "title" under 90 characters. Keep "formatNotes" under 200 characters and "bestTime" under 60 characters.`;
 
     const prompt = `Core idea / source material:
 """
@@ -72,14 +87,15 @@ For each platform return: title (headline / subject / hook), body (the full capt
           prompt,
           output: Output.object({ schema: OutputSchema }),
           maxRetries: 0,
+          abortSignal: AbortSignal.timeout(60_000),
         });
         const output = await result.output;
-        return { outputs: output.outputs };
+        return { outputs: normaliseOutputs(output.outputs) };
       } catch (error) {
         if (NoObjectGeneratedError.isInstance(error)) {
           try {
             const parsed = OutputSchema.safeParse(JSON.parse(error.text ?? ""));
-            if (parsed.success) return { outputs: parsed.data.outputs };
+            if (parsed.success) return { outputs: normaliseOutputs(parsed.data.outputs) };
           } catch {
             /* fall through to next model */
           }
@@ -98,4 +114,9 @@ For each platform return: title (headline / subject / hook), body (the full capt
       }
       throw new Error(`AI generation failed: ${message}`);
     }
-  });
+}
+
+export const repurposeContent = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => RepurposeInput.parse(input))
+  .handler(async ({ data }) => repurposeCore(data));

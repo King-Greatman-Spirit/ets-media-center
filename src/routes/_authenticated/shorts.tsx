@@ -3,15 +3,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Clapperboard, HardDrive, Loader2, Scissors, ArrowRight, CalendarCheck, RefreshCw } from "lucide-react";
+import { Clapperboard, HardDrive, Loader2, Scissors, ArrowRight, CalendarCheck, RefreshCw, Copy, Check, ExternalLink } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/app/AppShell";
 import { mediaQuery, signedUrl, type MediaAsset } from "@/lib/data";
 import { PLATFORMS } from "@/lib/platforms";
 import { PlatformChip } from "@/components/app/PlatformBadge";
-import { repurposeContent } from "@/lib/ai.functions";
-import { listInbox, detectMoments, cutInboxClip, cutLibraryClip, extractFrames } from "@/lib/batch.functions";
-import { captureTimestampedFrames, probeVideoMeta } from "@/lib/video-frames";
+import { listInbox, startDetectJob, startCutJob, getJob } from "@/lib/batch.functions";
 import { loadWatermarkSettings } from "@/components/app/WatermarkDialog";
 import { formatBytes } from "@/lib/data";
 import { Button } from "@/components/ui/button";
@@ -34,10 +32,133 @@ export const Route = createFileRoute("/_authenticated/shorts")({
 const TONES = ["Bold & prophetic", "Warm & pastoral", "Teaching & scriptural", "Urgent call to action", "Conversational", "Testimony driven"];
 
 type Moment = { start: number; end: number; title: string; hook: string; summary: string; checked: boolean };
-type ClipRef = { id: string; name: string; title: string };
+type ClipRef = { id: string; name: string; title: string; thumbnailPath: string | null };
+type CaptionOutput = {
+  platform: string;
+  title: string;
+  body: string;
+  hashtags: string[];
+  formatNotes: string;
+  bestTime: string;
+};
+type CaptionSet = { clipId: string; clipName: string; outputs: CaptionOutput[] };
 type Source =
   | { kind: "library"; asset: MediaAsset }
   | { kind: "inbox"; filename: string; sizeBytes: number };
+
+/** A finished clip: its auto-generated cover plus the caption cards. */
+function ClipResult({ clip, captions }: { clip: ClipRef; captions: CaptionSet | undefined }) {
+  const thumb = useQuery({
+    queryKey: ["clip-thumb", clip.thumbnailPath],
+    enabled: Boolean(clip.thumbnailPath),
+    staleTime: 30 * 60 * 1000,
+    queryFn: () => signedUrl(clip.thumbnailPath as string),
+  });
+
+  async function copyAll() {
+    if (!captions) return;
+    const text = captions.outputs
+      .map((o) => {
+        const name = PLATFORMS.find((p) => p.id === o.platform)?.name ?? o.platform;
+        return `=== ${name} ===\n${o.title}\n\n${o.body}\n\n${o.hashtags.map((h) => `#${h}`).join(" ")}`.trim();
+      })
+      .join("\n\n\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("All captions copied.");
+    } catch {
+      toast.error("Could not copy — select the text manually.");
+    }
+  }
+
+  return (
+    <div className="panel space-y-3 p-5">
+      <div className="flex items-start gap-4">
+        {thumb.data ? (
+          <img
+            src={thumb.data}
+            alt={clip.name}
+            className="h-32 w-[72px] shrink-0 rounded border border-border/60 object-cover"
+          />
+        ) : (
+          <div className="flex h-32 w-[72px] shrink-0 items-center justify-center rounded border border-border/60 bg-muted">
+            <Clapperboard className="h-5 w-5 text-muted-foreground" />
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-display text-sm font-semibold">{clip.title}</p>
+          <p className="truncate text-xs text-muted-foreground">✂ {clip.name}</p>
+          {captions && (
+            <Button size="sm" variant="outline" className="mt-2" onClick={() => void copyAll()}>
+              <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy all {captions.outputs.length} captions
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {captions ? (
+        <div className="grid gap-2 md:grid-cols-2">
+          {captions.outputs.map((o) => (
+            <CaptionCard key={o.platform} output={o} />
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">Captions are being written…</p>
+      )}
+    </div>
+  );
+}
+function CaptionCard({ output }: { output: CaptionOutput }) {
+  const [copied, setCopied] = useState(false);
+  const platform = PLATFORMS.find((p) => p.id === output.platform);
+  const full = `${output.title}\n\n${output.body}\n\n${output.hashtags.join(" ")}`.trim();
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(full);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      toast.error("Could not copy — select the text manually.");
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-border/60 p-3">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold" style={{ color: platform?.color }}>
+          {platform?.name ?? output.platform}
+        </span>
+        <div className="flex items-center gap-1">
+          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void copy()}>
+            {copied ? <Check className="mr-1 h-3 w-3" /> : <Copy className="mr-1 h-3 w-3" />}
+            {copied ? "Copied" : "Copy"}
+          </Button>
+          {platform?.postUrl && (
+            <a
+              href={platform.postUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs text-primary hover:bg-accent"
+              title={`Open ${platform.name} (you're already logged in there)`}
+            >
+              <ExternalLink className="h-3 w-3" /> Post
+            </a>
+          )}
+        </div>
+      </div>
+      <p className="text-sm font-semibold">{output.title}</p>
+      <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">{output.body}</p>
+      {output.hashtags.length > 0 && (
+        <p className="mt-1.5 text-xs text-primary">{output.hashtags.map((h) => `#${h}`).join(" ")}</p>
+      )}
+      <p className="mt-1.5 text-[11px] text-muted-foreground/70">
+        {output.bestTime}
+        {output.formatNotes ? ` · ${output.formatNotes}` : ""}
+      </p>
+    </div>
+  );
+}
 
 const MOMENTS_KEY = "ets-shorts-moments-v1";
 
@@ -72,11 +193,9 @@ function Shorts() {
   const qc = useQueryClient();
   const media = useQuery(mediaQuery);
   const runList = useServerFn(listInbox);
-  const runDetect = useServerFn(detectMoments);
-  const runFrames = useServerFn(extractFrames);
-  const runCutInbox = useServerFn(cutInboxClip);
-  const runCutLibrary = useServerFn(cutLibraryClip);
-  const runRepurpose = useServerFn(repurposeContent);
+  const runStartDetect = useServerFn(startDetectJob);
+  const runStartCut = useServerFn(startCutJob);
+  const runGetJob = useServerFn(getJob);
 
   const [source, setSource] = useState<Source | null>(null);
   const [localName, setLocalName] = useState("");
@@ -90,21 +209,89 @@ function Shorts() {
   const [phase, setPhase] = useState<"idle" | "detecting" | "cutting" | "captioning" | "done">("idle");
   const [progress, setProgress] = useState("");
   const [clips, setClips] = useState<ClipRef[]>([]);
+  const [captions, setCaptions] = useState<CaptionSet[]>([]);
   const [drafts, setDrafts] = useState(0);
   const [restored, setRestored] = useState(false);
   const watermark = loadWatermarkSettings();
 
   const libraryVideos = (media.data ?? []).filter((m) => m.kind === "video");
 
-  // Long cuts die with the tab: warn before leaving mid-run…
+  // Detection and cutting run as server-side jobs now, so leaving this page
+  // no longer stops them. The active job id is remembered and re-attached on
+  // return — close the tab, come back, and the results are here.
+  const JOB_KEY = "ets-active-job-v1";
   useEffect(() => {
-    if (phase === "idle" || phase === "done") return;
-    const guard = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
+    let cancelled = false;
+    let timer: number | null = null;
+    async function resume() {
+      let saved: { jobId: string; kind: "detect" | "cut" } | null = null;
+      try {
+        const raw = localStorage.getItem(JOB_KEY);
+        if (raw) saved = JSON.parse(raw);
+      } catch {
+        saved = null;
+      }
+      if (!saved) return;
+      setPhase(saved.kind === "detect" ? "detecting" : "cutting");
+      setProgress("Re-attached to your background job…");
+      while (!cancelled) {
+        try {
+          const job = await runGetJob({ data: { jobId: saved.jobId } });
+          setProgress(job.progress);
+          if (job.status === "done") {
+            try {
+              localStorage.removeItem(JOB_KEY);
+            } catch {
+              // Ignore.
+            }
+            if (saved.kind === "detect" && Array.isArray(job.moments)) {
+              const ms = (job.moments as Moment[]).map((m) => ({ ...m, checked: true }));
+              setMoments(ms);
+              setPhase("idle");
+              setProgress("");
+              toast.success(
+                ms.length === 1 ? "1 highlight found." : `${ms.length} highlights found — uncheck any to skip.`,
+              );
+            } else if (saved.kind === "cut") {
+              const cls = (job.clips as ClipRef[]) ?? [];
+              setClips(cls);
+              setCaptions((job.captions as CaptionSet[]) ?? []);
+              setDrafts(Number(job.drafts) || 0);
+              setPhase("done");
+              setProgress("");
+              await qc.invalidateQueries({ queryKey: ["media"] });
+              await qc.invalidateQueries({ queryKey: ["posts"] });
+              toast.success("Your background job finished.");
+            }
+            return;
+          }
+          if (job.status === "failed") {
+            try {
+              localStorage.removeItem(JOB_KEY);
+            } catch {
+              // Ignore.
+            }
+            setPhase("idle");
+            setProgress("");
+            toast.error(job.error || "Background job failed.");
+            return;
+          }
+        } catch {
+          // Job may have been pruned — stop polling quietly.
+          return;
+        }
+        await new Promise((r) => {
+          timer = window.setTimeout(r, 2000);
+        });
+      }
+    }
+    void resume();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
     };
-    window.addEventListener("beforeunload", guard);
-    return () => window.removeEventListener("beforeunload", guard);
-  }, [phase]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // …and auto-save moments so a reload resumes where you left off.
   useEffect(() => {
@@ -163,6 +350,7 @@ function Shorts() {
     setSource(next);
     setMoments(null);
     setClips([]);
+    setCaptions([]);
     setDrafts(0);
     setPhase("idle");
     setProgress("");
@@ -209,101 +397,58 @@ function Shorts() {
       toast.error("Pick a library video or an inbox file first.");
       return;
     }
+    const src = source;
     const targetSeconds = Number(targetLen);
     setPhase("detecting");
+    setProgress("Preparing video — first run downloads it once, then it's cached…");
     setMoments(null);
     setClips([]);
+    setCaptions([]);
     setDrafts(0);
     try {
-      // Long videos are scanned in ~10-minute sections so the AI looks closely
-      // instead of guessing across the whole hour at once.
-      const SEGMENT = 10 * 60;
-      const MAX_SEGMENTS = 8;
-
-      let fullDuration = 0;
-      let libraryUrl: string | null = null;
-      if (source.kind === "library") {
-        libraryUrl = await signedUrl(source.asset.storage_path);
-        fullDuration = Number(source.asset.duration_seconds) || 0;
-        if (!fullDuration) fullDuration = (await probeVideoMeta(libraryUrl)).duration;
-        if (!fullDuration) throw new Error("Could not determine this video's length.");
-      } else {
-        setProgress("Reading video length…");
-        const probed = await runFrames({ data: { filename: source.filename, count: 2 } });
-        fullDuration = probed.duration;
-        if (!fullDuration) throw new Error("Could not determine this video's length.");
+      const { jobId } = await runStartDetect({
+        data:
+          src.kind === "library"
+            ? { assetId: src.asset.id, targetSeconds }
+            : { filename: src.filename, targetSeconds },
+      });
+      try {
+        localStorage.setItem(JOB_KEY, JSON.stringify({ jobId, kind: "detect" }));
+      } catch {
+        // Ignore storage errors.
       }
-
-      const segments: { from: number; to: number }[] = [];
-      for (let s = 0; s < fullDuration && segments.length < MAX_SEGMENTS; s += SEGMENT) {
-        segments.push({ from: s, to: Math.min(s + SEGMENT, fullDuration) });
-      }
-
-      const merged: Moment[] = [];
-      let failures = 0;
-      for (let i = 0; i < segments.length; i++) {
-        const seg = segments[i]!;
-        setProgress(
-          segments.length > 1
-            ? `Watching section ${i + 1} of ${segments.length}…`
-            : "Watching for the best moments…",
-        );
-        try {
-          if (source.kind === "library" && libraryUrl) {
-            const frames = await captureTimestampedFrames(libraryUrl, 8, 560, seg.from, seg.to);
-            const { moments: found } = await runDetect({
-              data: {
-                assetId: source.asset.id,
-                duration: fullDuration,
-                focusStart: seg.from,
-                focusEnd: seg.to,
-                frames,
-                targetSeconds,
-              },
-            });
-            merged.push(...found.map((m) => ({ ...m, checked: true })));
-          } else if (source.kind === "inbox") {
-            const { frames } = await runFrames({
-              data: { filename: source.filename, count: 8, from: seg.from, to: seg.to },
-            });
-            const { moments: found } = await runDetect({
-              data: {
-                filename: source.filename,
-                duration: fullDuration,
-                focusStart: seg.from,
-                focusEnd: seg.to,
-                frames,
-                targetSeconds,
-              },
-            });
-            merged.push(...found.map((m) => ({ ...m, checked: true })));
+      // Poll the server-side job. You can leave this page — it keeps running.
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const job = await runGetJob({ data: { jobId } });
+        setProgress(job.progress);
+        if (job.status === "done") {
+          const ms = ((job.moments as Moment[]) ?? []).map((m) => ({ ...m, checked: true }));
+          setMoments(ms);
+          setPhase("idle");
+          setProgress("");
+          try {
+            localStorage.removeItem(JOB_KEY);
+          } catch {
+            // Ignore.
           }
-        } catch (e) {
-          failures++;
-          console.warn(`Section ${i + 1} skipped:`, e instanceof Error ? e.message : e);
+          toast.success(
+            ms.length === 1 ? "1 highlight found." : `${ms.length} highlights found — uncheck any to skip.`,
+          );
+          return;
+        }
+        if (job.status === "failed") {
+          throw new Error(job.error || "Detection failed");
         }
       }
-
-      merged.sort((a, b) => a.start - b.start);
-      const capped = merged.slice(0, 24);
-      if (capped.length === 0) {
-        throw new Error(
-          failures > 0
-            ? "The AI is busy right now — wait a minute and press Detect again."
-            : "The AI found no clear highlights. Try a video with more varied scenes.",
-        );
-      }
-      setMoments(capped);
-      setPhase("idle");
-      setProgress("");
-      toast.success(
-        capped.length === 1
-          ? "1 highlight found."
-          : `${capped.length} highlights found${failures > 0 ? ` (${failures} section${failures === 1 ? "" : "s"} skipped)` : ""} — uncheck any to skip.`,
-      );
     } catch (err) {
       setPhase("idle");
       setProgress("");
+      try {
+        localStorage.removeItem(JOB_KEY);
+      } catch {
+        // Ignore.
+      }
       toast.error(err instanceof Error ? err.message : "Detection failed");
     }
   }
@@ -314,102 +459,77 @@ function Shorts() {
       toast.error("Pick a source, keep at least one moment, and tick a platform.");
       return;
     }
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) {
-      toast.error("Please sign in again.");
-      return;
-    }
-    const userId = auth.user.id;
-
+    const src = source;
+    const dims = src.kind === "library" ? { w: Number(src.asset.width) || 0, h: Number(src.asset.height) || 0 } : null;
     setPhase("cutting");
-    const made: ClipRef[] = [];
-    for (let i = 0; i < wanted.length; i++) {
-      const m = wanted[i]!;
-      setProgress(`Cutting clip ${i + 1} of ${wanted.length}…`);
+    setProgress("Starting background job…");
+    setCaptions([]);
+    try {
+      const { jobId } = await runStartCut({
+        data: {
+          source:
+            src.kind === "library"
+              ? { kind: "library" as const, assetId: src.asset.id }
+              : { kind: "inbox" as const, filename: src.filename },
+          moments: wanted.map((m) => ({ start: m.start, end: m.end, title: m.title, hook: m.hook, summary: m.summary })),
+          vertical: dims ? vertical && dims.w > dims.h : vertical,
+          quality: quality as "fast" | "best",
+          watermarkText: watermark.text || undefined,
+          watermarkPosition: watermark.position,
+          watermarkSize: watermark.size,
+          logoDataUrl: watermark.logoDataUrl || undefined,
+          logoPosition: watermark.logoPosition,
+          tone,
+          platforms,
+        },
+      });
       try {
-        if (source.kind === "inbox") {
-          const kept = await runCutInbox({
-            data: {
-              filename: source.filename,
-              index: i,
-              moment: { start: m.start, end: m.end, title: m.title, hook: m.hook, summary: m.summary },
-              vertical,
-              quality: quality as "fast" | "best",
-              watermarkText: watermark.text || undefined,
-              watermarkPosition: watermark.position,
-              logoDataUrl: watermark.logoDataUrl || undefined,
-              logoPosition: watermark.logoPosition,
-            },
-          });
-          made.push({ id: kept.id, name: kept.name, title: kept.title });
-        } else {
-          const dims = { w: Number(source.asset.width) || 0, h: Number(source.asset.height) || 0 };
-          const kept = await runCutLibrary({
-            data: {
-              assetId: source.asset.id,
-              index: i,
-              moment: { start: m.start, end: m.end, title: m.title, hook: m.hook, summary: m.summary },
-              vertical: vertical && dims.w > dims.h,
-              quality: quality as "fast" | "best",
-              watermarkText: watermark.text || undefined,
-              watermarkPosition: watermark.position,
-              logoDataUrl: watermark.logoDataUrl || undefined,
-              logoPosition: watermark.logoPosition,
-            },
-          });
-          made.push({ id: kept.id, name: kept.name, title: kept.title });
-        }
-      } catch (e) {
-        toast.error(`Clip ${i + 1} failed: ${e instanceof Error ? e.message : "cut failed"}`);
+        localStorage.setItem(JOB_KEY, JSON.stringify({ jobId, kind: "cut" }));
+      } catch {
+        // Ignore storage errors.
       }
-    }
-    setClips(made);
-    await qc.invalidateQueries({ queryKey: ["media"] });
-    if (made.length === 0) {
+      // Poll the server-side job. You can leave this page — it keeps running.
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const job = await runGetJob({ data: { jobId } });
+        setProgress(job.progress);
+        if (job.status === "done") {
+          const cls = (job.clips as ClipRef[]) ?? [];
+          setClips(cls);
+          setCaptions((job.captions as CaptionSet[]) ?? []);
+          setDrafts(Number(job.drafts) || 0);
+          setPhase("done");
+          setProgress("");
+          try {
+            localStorage.removeItem(JOB_KEY);
+          } catch {
+            // Ignore.
+          }
+          await qc.invalidateQueries({ queryKey: ["media"] });
+          await qc.invalidateQueries({ queryKey: ["posts"] });
+          toast.success(
+            cls.length > 0
+              ? `${cls.length} clips cut${Number(job.drafts) > 0 ? `, ${job.drafts} drafts queued` : ""}.`
+              : "Done.",
+          );
+          return;
+        }
+        if (job.status === "failed") {
+          throw new Error(job.error || "Cutting failed");
+        }
+      }
+    } catch (err) {
       setPhase("idle");
       setProgress("");
-      return;
-    }
-
-    setPhase("captioning");
-    let created = 0;
-    const base = new Date();
-    base.setDate(base.getDate() + 1);
-    base.setHours(18, 0, 0, 0);
-    for (let i = 0; i < made.length; i++) {
-      const clip = made[i]!;
-      const w = wanted[i]!;
-      setProgress(`Writing captions ${i + 1} of ${made.length}…`);
       try {
-        const idea = `Clip: ${clip.title}. Hook: ${w.hook} ${w.summary}`.slice(0, 2000);
-        const result = await runRepurpose({
-          data: { idea, tone, platforms: platforms as never, mediaName: clip.name, mediaKind: "video" },
-        });
-        const day = new Date(base);
-        day.setDate(day.getDate() + i);
-        for (const o of result.outputs) {
-          const { error } = await supabase.from("scheduled_posts").insert({
-            user_id: userId,
-            title: o.title,
-            content: `${o.body}\n\n${o.hashtags.join(" ")}`.trim(),
-            platform: o.platform,
-            status: "draft",
-            scheduled_at: day.toISOString(),
-            hashtags: o.hashtags,
-            media_asset_id: clip.id,
-          });
-          if (!error) created++;
-        }
-      } catch (e) {
-        toast.error(`Captions failed for ${clip.name}: ${e instanceof Error ? e.message : "failed"}`);
+        localStorage.removeItem(JOB_KEY);
+      } catch {
+        // Ignore.
       }
+      toast.error(err instanceof Error ? err.message : "Cutting failed");
     }
-    await qc.invalidateQueries({ queryKey: ["posts"] });
-    setDrafts(created);
-    setPhase("done");
-    setProgress("");
-    toast.success(created > 0 ? `${made.length} clips cut, ${created} drafts queued.` : `${made.length} clips cut.`);
   }
+
 
   return (
     <div>
@@ -567,6 +687,14 @@ function Shorts() {
             {phase === "detecting" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Scissors className="mr-2 h-4 w-4" />}
             {phase === "detecting" ? "Watching…" : "1 · Detect highlights"}
           </Button>
+          {phase === "detecting" && progress && (
+            <p className="text-center text-xs text-muted-foreground">{progress}</p>
+          )}
+          {phase === "detecting" && (
+            <p className="text-center text-[11px] text-muted-foreground/70">
+              Runs in the background on the server — you can leave this page and come back.
+            </p>
+          )}
         </div>
 
         <div className="space-y-4">
@@ -614,14 +742,19 @@ function Shorts() {
           )}
 
           {clips.length > 0 && (
-            <div className="panel space-y-2 p-5">
-              <p className="font-display font-semibold">{clips.length} clips ready{drafts > 0 ? `, ${drafts} drafts queued` : ""}</p>
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-display font-semibold">
+                  {clips.length} clip{clips.length === 1 ? "" : "s"} ready
+                  {drafts > 0 ? ` · ${drafts} calendar drafts queued` : ""}
+                </p>
+                <Link to="/calendar" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+                  Review in the calendar <ArrowRight className="h-3 w-3" />
+                </Link>
+              </div>
               {clips.map((c) => (
-                <p key={c.id} className="truncate text-sm text-muted-foreground">✂ {c.name}</p>
+                <ClipResult key={c.id} clip={c} captions={captions.find((x) => x.clipId === c.id)} />
               ))}
-              <Link to="/calendar" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
-                Review drafts in the calendar <ArrowRight className="h-3 w-3" />
-              </Link>
             </div>
           )}
         </div>

@@ -50,3 +50,9 @@ media-inbox/*
 
 # package-lock
 package-lock.json
+
+# Framework cache + local test renders (never commit test videos)
+.tanstack/
+preview/
+test-clip.mp4
+*.mp4

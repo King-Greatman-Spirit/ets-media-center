@@ -14,9 +14,12 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = Field(default="")
     SUPABASE_SERVICE_KEY: str = Field(default="")
     SUPABASE_ANON_KEY: str = Field(default="")
+    SUPABASE_PUBLISHABLE_KEY: str = Field(default="")
 
     OPENAI_API_KEY: str = Field(default="")
+    GOOGLE_GENERATIVE_AI_API_KEY: str = Field(default="")
     ANTHROPIC_API_KEY: str = Field(default="")
+
     WHISPER_MODEL: str = Field(default="large-v3")
 
     YOUTUBE_API_KEY: str = Field(default="")
@@ -38,6 +41,8 @@ class Settings(BaseSettings):
 
     TELEGRAM_BOT_TOKEN: str = Field(default="")
 
+    PLATFORM_CREDENTIALS_KEY: str = Field(default="")
+
     REDIS_URL: str = Field(default="redis://localhost:6379/0")
     CELERY_BROKER_URL: str = Field(default="redis://localhost:6379/0")
 
@@ -46,6 +51,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        extra = "ignore"
 
 
 settings = Settings()

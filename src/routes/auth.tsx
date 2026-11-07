@@ -102,7 +102,7 @@ function AuthPage() {
             <p className="text-base text-muted-foreground">
 
               Upload once, repurpose with AI, and schedule weeks ahead across YouTube, TikTok, Instagram,
-              Facebook, Threads, LinkedIn, X, Telegram and Substack.
+              Facebook, Threads, LinkedIn, X and Telegram.
             </p>
             <ul className="grid grid-cols-2 gap-3 text-sm text-foreground/80">
               <Feature icon={Shield} label="Bulk media library" />

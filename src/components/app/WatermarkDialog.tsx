@@ -29,8 +29,8 @@ export type WatermarkSettings = {
 };
 const DEFAULT_SETTINGS: WatermarkSettings = {
   text: "End Time Soldiers",
-  position: "bottom-right",
-  logoPosition: "top-right",
+  position: "middle-center",
+  logoPosition: "bottom-center",
   logoDataUrl: null,
   opacity: 60,
   size: "medium",

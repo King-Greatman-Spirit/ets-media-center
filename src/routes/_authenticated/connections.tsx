@@ -4,11 +4,12 @@ import { useServerFn } from "@tanstack/react-start";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { ExternalLink, ShieldCheck, Loader2, Trash2, KeyRound } from "lucide-react";
+import { ExternalLink, ShieldCheck, Loader2, Trash2, KeyRound, BookOpen } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/app/AppShell";
 import { connectionsQuery } from "@/lib/data";
 import { PLATFORMS, type Platform } from "@/lib/platforms";
+import { GUIDES, type PlatformGuide } from "@/lib/platform-guides";
 import { saveConnection } from "@/lib/connections.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,7 @@ function Connections() {
   const qc = useQueryClient();
   const connections = useQuery(connectionsQuery);
   const [active, setActive] = useState<Platform | null>(null);
+  const [guide, setGuide] = useState<PlatformGuide | null>(null);
 
   const byPlatform = new Map((connections.data ?? []).map((c) => [c.platform, c]));
 
@@ -93,9 +95,12 @@ function Connections() {
                 </p>
               )}
 
-              <div className="mt-4 flex items-center gap-2">
+              <div className="mt-4 flex flex-wrap items-center gap-2">
                 <Button size="sm" variant={conn ? "outline" : "default"} className={conn ? "" : "bg-gold-gradient text-primary-foreground"} onClick={() => setActive(p)}>
                   <KeyRound className="mr-1.5 h-3.5 w-3.5" /> {conn ? "Update keys" : "Connect"}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setGuide(GUIDES[p.id])}>
+                  <BookOpen className="mr-1.5 h-3.5 w-3.5" /> Setup guide
                 </Button>
                 <a href={p.docsUrl} target="_blank" rel="noreferrer" className="text-xs text-muted-foreground hover:text-primary">
                   <ExternalLink className="inline h-3 w-3" /> Get keys
@@ -112,7 +117,62 @@ function Connections() {
       </div>
 
       <CredentialDialog platform={active} onClose={() => setActive(null)} />
+      <GuideDialog guide={guide} onClose={() => setGuide(null)} />
     </div>
+  );
+}
+
+function GuideDialog({ guide, onClose }: { guide: PlatformGuide | null; onClose: () => void }) {
+  const platform = guide ? PLATFORMS.find((p) => p.id === guide.platform) ?? null : null;
+  return (
+    <Dialog open={!!guide} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="font-display">
+            {platform ? `How to connect ${platform.name}` : "Setup guide"}
+          </DialogTitle>
+          <DialogDescription>
+            Follow these steps in order. Everything here is free unless it says otherwise.
+            You can also open the official console from the links below.
+          </DialogDescription>
+        </DialogHeader>
+        {guide && platform && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline" className="border-primary/30 text-primary">{guide.cost}</Badge>
+              <Badge variant="outline">{guide.time}</Badge>
+              {guide.worksToday && (
+                <Badge className="bg-success/15 text-success hover:bg-success/15">Works today</Badge>
+              )}
+            </div>
+
+            <ol className="list-decimal space-y-2.5 pl-5 text-sm leading-relaxed text-foreground/90">
+              {guide.steps.map((step, i) => (
+                <li key={i}>{step}</li>
+              ))}
+            </ol>
+
+            {guide.note && (
+              <p className="rounded-lg border border-primary/30 bg-accent/40 px-3 py-2 text-xs text-muted-foreground">
+                {guide.note}
+              </p>
+            )}
+
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Official links</p>
+              {guide.links.map((l) => (
+                <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-sm text-primary hover:underline">
+                  <ExternalLink className="h-3.5 w-3.5" /> {l.label}
+                </a>
+              ))}
+              <a href={platform.docsUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-sm text-primary hover:underline">
+                <ExternalLink className="h-3.5 w-3.5" /> Official developer docs
+              </a>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

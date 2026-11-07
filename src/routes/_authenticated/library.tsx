@@ -309,6 +309,7 @@ function Library() {
           assetId: asset.id,
           watermarkText: wm.text.trim() || undefined,
           watermarkPosition: wm.position,
+          watermarkSize: wm.size,
           logoDataUrl: wm.logoDataUrl || undefined,
           logoPosition: wm.logoPosition,
         },

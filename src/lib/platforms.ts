@@ -6,8 +6,7 @@ export type PlatformId =
   | "threads"
   | "linkedin"
   | "x"
-  | "telegram"
-  | "substack";
+  | "telegram";
 
 export type CredentialField = {
   key: string;
@@ -25,6 +24,8 @@ export type Platform = {
   charLimit: number;
   format: string;
   docsUrl: string;
+  /** Official upload/compose page — opened for manual posting (free path). */
+  postUrl: string;
   fields: CredentialField[];
   /** true when one-click auto-posting is implemented for this channel */
   autoPublish?: boolean;
@@ -39,6 +40,7 @@ export const PLATFORMS: Platform[] = [
     charLimit: 100,
     format: "Title ≤100 chars, description with timestamps, 3-5 hashtags, vertical 9:16 ≤60s",
     docsUrl: "https://console.cloud.google.com/apis/credentials",
+    postUrl: "https://studio.youtube.com/",
     fields: [
       { key: "client_id", label: "OAuth Client ID" },
       { key: "client_secret", label: "OAuth Client Secret", secret: true },
@@ -54,6 +56,7 @@ export const PLATFORMS: Platform[] = [
     charLimit: 2200,
     format: "Hook in first line, 3-6 trending hashtags, punchy, vertical 9:16",
     docsUrl: "https://developers.tiktok.com/",
+    postUrl: "https://www.tiktok.com/upload",
     fields: [
       { key: "client_key", label: "Client Key" },
       { key: "client_secret", label: "Client Secret", secret: true },
@@ -68,6 +71,7 @@ export const PLATFORMS: Platform[] = [
     charLimit: 2200,
     format: "Caption with line breaks, CTA, up to 30 hashtags (5-10 ideal), vertical 9:16",
     docsUrl: "https://developers.facebook.com/apps/",
+    postUrl: "https://www.instagram.com/",
     fields: [
       { key: "app_id", label: "Meta App ID" },
       { key: "app_secret", label: "Meta App Secret", secret: true },
@@ -83,6 +87,7 @@ export const PLATFORMS: Platform[] = [
     charLimit: 63206,
     format: "Conversational, 1-3 short paragraphs, 1-3 hashtags, link or video",
     docsUrl: "https://developers.facebook.com/apps/",
+    postUrl: "https://www.facebook.com/",
     fields: [
       { key: "page_id", label: "Page ID" },
       { key: "page_access_token", label: "Page Access Token", secret: true },
@@ -96,6 +101,7 @@ export const PLATFORMS: Platform[] = [
     charLimit: 500,
     format: "≤500 chars, casual, one idea per post, optional thread continuation",
     docsUrl: "https://developers.facebook.com/docs/threads",
+    postUrl: "https://www.threads.net/",
     fields: [
       { key: "user_id", label: "Threads User ID" },
       { key: "access_token", label: "Access Token", secret: true },
@@ -109,6 +115,7 @@ export const PLATFORMS: Platform[] = [
     charLimit: 3000,
     format: "Professional hook, short paragraphs, insight + takeaway, 3-5 hashtags",
     docsUrl: "https://www.linkedin.com/developers/apps",
+    postUrl: "https://www.linkedin.com/feed/",
     fields: [
       { key: "client_id", label: "Client ID" },
       { key: "client_secret", label: "Client Secret", secret: true },
@@ -124,6 +131,7 @@ export const PLATFORMS: Platform[] = [
     charLimit: 280,
     format: "≤280 chars, sharp hook, 1-2 hashtags max, optional thread",
     docsUrl: "https://developer.x.com/en/portal/dashboard",
+    postUrl: "https://x.com/compose/post",
     fields: [
       { key: "api_key", label: "API Key" },
       { key: "api_secret", label: "API Secret", secret: true },
@@ -139,23 +147,11 @@ export const PLATFORMS: Platform[] = [
     charLimit: 4096,
     format: "Broadcast style, bold headline, emojis sparingly, direct link, no hashtags needed",
     docsUrl: "https://core.telegram.org/bots#botfather",
+    postUrl: "https://web.telegram.org/",
     autoPublish: true,
     fields: [
       { key: "bot_token", label: "Bot Token", secret: true, hint: "From @BotFather" },
       { key: "chat_id", label: "Channel / Chat ID", hint: "e.g. @yourchannel or -100…" },
-    ],
-  },
-  {
-    id: "substack",
-    name: "Substack",
-    short: "SS",
-    color: "oklch(0.72 0.19 45)",
-    charLimit: 20000,
-    format: "Newsletter: subject line, preview text, long-form body with headers, closing CTA",
-    docsUrl: "https://substack.com/",
-    fields: [
-      { key: "publication_url", label: "Publication URL" },
-      { key: "session_cookie", label: "Session Cookie / API Token", secret: true },
     ],
   },
 ];
